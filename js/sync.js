@@ -28,7 +28,10 @@ export function merge(local, remote, dirty = new Set()) {
   const overwritten = [];
   let changedLocal = false;   // локальная копия получила что-то новое
   let changedRemote = false;  // в удалённую копию нужно отправить что-то новое
-  for (const c of COLLECTIONS) {
+  // все коллекции обеих копий — даже неизвестные этой версии приложения (чтобы старая версия не стёрла данные новой)
+  const colls = new Set([...COLLECTIONS, ...Object.keys((local && local.collections) || {}), ...Object.keys((remote && remote.collections) || {})]);
+  for (const c of colls) {
+    merged.collections[c] = merged.collections[c] || {};
     const L = (local && local.collections[c]) || {};
     const R = (remote && remote.collections[c]) || {};
     const ids = new Set([...Object.keys(L), ...Object.keys(R)]);

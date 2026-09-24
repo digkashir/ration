@@ -1,7 +1,7 @@
 // Настройки подключения к Google. Эти значения не секретные:
 // они защищены ограничением на адрес https://digkashir.github.io
 export const CONFIG = {
-  version: '0.1.0',
+  version: '0.2.0',
   clientId: '299241992215-8a6dmdsn20etn08hpqo8bjfo2d62scrt.apps.googleusercontent.com',
   apiKey: 'AIzaSyCjoOADmqNWKAXbLDDTJsC4nGxOC-f4A00',
   appId: '299241992215', // номер проекта Google Cloud (нужен окну выбора файла)
@@ -20,4 +20,4 @@ export const TAG_GROUPS = [
   { id: 'type', name: 'Тип блюда' },
 ];
 
-export const COLLECTIONS = ['ingredients', 'tags', 'recipes', 'persons', 'plan'];
+export const COLLECTIONS = ['ingredients', 'tags', 'recipes', 'groups', 'persons', 'plan'];

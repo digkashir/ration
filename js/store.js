@@ -3,6 +3,7 @@ import * as idb from './db.js';
 import * as drive from './drive.js';
 import { merge, emptyDb } from './sync.js';
 import { CONFIG } from './config.js';
+import { normalize } from './migrate.js';
 
 const listeners = new Set();
 export const state = {
@@ -10,6 +11,7 @@ export const state = {
   meta: null,          // { mode: 'local'|'drive', fileId, fileLink, remoteVersion, lastSync, user, dirty: [] }
   status: 'idle',      // idle | local | syncing | synced | dirty | offline | auth | error
   error: '',
+  rev: 0,              // растёт при каждом изменении данных (для перерисовки)
 };
 
 export function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
@@ -24,7 +26,7 @@ async function persist() {
 }
 
 export async function init() {
-  state.data = (await idb.get('data')) || null;
+  state.data = normalize((await idb.get('data')) || null);
   state.meta = (await idb.get('meta')) || null;
   if (state.meta) state.meta.dirty = state.meta.dirty || [];
   refreshStatus();
@@ -46,7 +48,7 @@ function refreshStatus() {
 export async function loadSeed() {
   const r = await fetch('data/seed.json', { cache: 'no-cache' });
   if (!r.ok) throw new Error('Не удалось загрузить стартовую базу');
-  return r.json();
+  return normalize(await r.json());
 }
 
 /** Начать работу только на этом устройстве (без входа). */
@@ -81,6 +83,25 @@ function stamp(rec) {
 export async function put(coll, rec) {
   state.data.collections[coll][rec.id] = stamp({ ...rec });
   markDirty(coll, rec.id);
+  state.rev++;
+  await persist();
+  emit();
+  scheduleSync();
+}
+
+/** Несколько изменений разом: [{ coll, rec }] или [{ coll, id, remove: true }]. */
+export async function putAll(changes) {
+  for (const ch of changes) {
+    if (ch.remove) {
+      const old = state.data.collections[ch.coll][ch.id] || { id: ch.id };
+      state.data.collections[ch.coll][ch.id] = stamp({ id: ch.id, name: old.name, deleted: true });
+      markDirty(ch.coll, ch.id);
+    } else {
+      state.data.collections[ch.coll][ch.rec.id] = stamp({ ...ch.rec });
+      markDirty(ch.coll, ch.rec.id);
+    }
+  }
+  state.rev++;
   await persist();
   emit();
   scheduleSync();
@@ -90,6 +111,7 @@ export async function remove(coll, id) {
   const old = state.data.collections[coll][id] || { id };
   state.data.collections[coll][id] = stamp({ id, name: old.name, deleted: true });
   markDirty(coll, id);
+  state.rev++;
   await persist();
   emit();
   scheduleSync();
@@ -128,9 +150,9 @@ async function doSync() {
     let data = state.data;
     let needUpload = dirty.size > 0;
     if (String(metaR.version) !== String(state.meta.remoteVersion)) {
-      const remote = await drive.download(state.meta.fileId);
+      const remote = normalize(await drive.download(state.meta.fileId));
       const m = merge(state.data, remote, dirty);
-      data = m.merged;
+      data = normalize(m.merged);
       needUpload = m.changedRemote;
       if (m.overwritten.length) {
         toast('Более поздние правки с другого устройства заменили ваши: ' + m.overwritten.slice(0, 3).map((o) => '«' + o.name + '»').join(', ') +
@@ -151,6 +173,7 @@ async function doSync() {
         data.collections[c][id] = state.data.collections[c][id];
       }
     }
+    if (data !== state.data) state.rev++;
     state.data = data;
     state.meta.remoteVersion = version;
     state.meta.lastSync = new Date().toISOString();
