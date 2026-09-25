@@ -12,21 +12,39 @@ export function members(groupId) {
   return list.sort((a, b) => pos(a) - pos(b) || a.name.localeCompare(b.name, 'ru'));
 }
 
+/** Рецепты, которые уже в другой группе, переносятся (Q-44): убрать их из порядка старой группы. */
+function detach(recipeIds, exceptGroupId) {
+  const byGroup = {};
+  for (const id of recipeIds) {
+    const r = store.get('recipes', id);
+    if (r && r.groupId && r.groupId !== exceptGroupId && store.get('groups', r.groupId)) (byGroup[r.groupId] = byGroup[r.groupId] || []).push(id);
+  }
+  const changes = Object.entries(byGroup).map(([gid, ids]) => {
+    const g = store.get('groups', gid);
+    return { coll: 'groups', rec: { ...g, order: (g.order || []).filter((x) => !ids.includes(x)) } };
+  });
+  return { changes, touched: Object.keys(byGroup) };
+}
+
+/** @returns {{group, touched}} touched — старые группы, из которых перенесли рецепты */
 export async function createGroup(name, recipeIds, renames = {}) {
   const g = { id: store.newId('grp'), name: name.trim(), order: [...recipeIds] };
-  const changes = [{ coll: 'groups', rec: g }];
+  const d = detach(recipeIds, null);
+  const changes = [{ coll: 'groups', rec: g }, ...d.changes];
   for (const id of recipeIds) {
     const r = store.get('recipes', id);
     if (r) changes.push({ coll: 'recipes', rec: { ...r, groupId: g.id, name: (renames[id] || r.name).trim() } });
   }
   await store.putAll(changes);
-  return g;
+  return { group: g, touched: d.touched };
 }
 
+/** @returns {string[]} старые группы, из которых перенесли рецепты */
 export async function addToGroup(groupId, recipeIds) {
   const g = store.get('groups', groupId);
   const order = [...members(groupId).map((r) => r.id)];
-  const changes = [];
+  const d = detach(recipeIds, groupId);
+  const changes = [...d.changes];
   for (const id of recipeIds) {
     const r = store.get('recipes', id);
     if (!r || r.groupId === groupId) continue;
@@ -35,6 +53,23 @@ export async function addToGroup(groupId, recipeIds) {
   }
   changes.push({ coll: 'groups', rec: { ...g, order } });
   await store.putAll(changes);
+  return d.touched;
+}
+
+/** Если после переноса в старой группе остался один рецепт или ни одного — спросить (11E). */
+export function promptLeft(touched, movedName, toName) {
+  for (const gid of touched || []) {
+    if (store.get('groups', gid) && members(gid).length <= 1) {
+      openLayer({ type: 'dialog', kind: 'last-one', groupId: gid, removed: movedName, movedTo: toName });
+      return;
+    }
+  }
+}
+
+/** Новый порядок рецептов группы. */
+export async function setOrder(groupId, order) {
+  const g = store.get('groups', groupId);
+  if (g) await store.put('groups', { ...g, order });
 }
 
 export async function disband(groupId) {
@@ -73,7 +108,7 @@ export function dialogView(l) {
       return `<div class="dlg-row"><input data-rename="${esc(id)}" value="${esc(names[id] != null ? names[id] : r.name)}" aria-label="Название рецепта">${tag ? `<span class="hint">${tag}</span>` : ''}</div>`;
     }).join('');
     return dlg(`<h2>Рецепты объединятся в группу</h2>
-      <p class="hint">${l.draft ? 'У «' + esc(src.name) + '» появился вариант. Оба рецепта станут равноправными вариантами одной группы.' : 'Выбранные рецепты станут равноправными вариантами одной группы.'}</p>
+      <p class="hint">${l.draft ? 'У «' + esc(src.name) + '» появился вариант. Оба рецепта станут равноправными вариантами одной группы.' : l.fromDrop ? 'Оба рецепта станут равноправными вариантами одной группы. Первый в списке — рецепт по умолчанию.' : 'Выбранные рецепты станут равноправными вариантами одной группы.'}${l.recipeIds.some((id) => { const r = store.get('recipes', id); return r && r.groupId && store.get('groups', r.groupId); }) ? ' Рецепт из другой группы перенесётся сюда.' : ''}</p>
       <label class="field"><span>Название группы</span><input id="grp-name" value="${esc(l.groupName)}" data-autofocus></label>
       <div class="panel"><span class="hint"><b>В группе</b> — здесь же можно переименовать рецепты, например исходный — в «… без начинки».</span>${rows}</div>
       <p class="err" id="dlg-err" role="alert"></p>`,
@@ -81,9 +116,10 @@ export function dialogView(l) {
   }
   if (l.kind === 'last-one') {
     const left = members(l.groupId);
+    const gone = l.movedTo ? `«${esc(l.removed)}» перенесён в «${esc(l.movedTo)}»` : `«${esc(l.removed)}» удалён`;
     const txt = left.length === 1
-      ? `«${esc(l.removed)}» удалён. Расформировать группу, чтобы «${esc(left[0].name)}» стал обычным рецептом? Или оставить группу, если скоро добавите новые варианты.`
-      : `«${esc(l.removed)}» удалён, в группе не осталось рецептов. Удалить пустую группу или оставить её?`;
+      ? `${gone}. Расформировать группу, чтобы «${esc(left[0].name)}» стал обычным рецептом? Или оставить группу, если скоро добавите новые варианты.`
+      : `${gone}, в группе не осталось рецептов. Удалить пустую группу или оставить её?`;
     return dlg(`<h2>${left.length === 1 ? 'В группе «' + esc(g.name) + '» остался один рецепт' : 'Группа «' + esc(g.name) + '» пуста'}</h2><p class="hint">${txt}</p>`,
       `<button class="btn" data-a="layer-close">Оставить группу</button><button class="btn dark" data-a="grp-disband-now">${left.length === 1 ? 'Расформировать' : 'Удалить группу'}</button>`, true);
   }
@@ -147,7 +183,7 @@ actions['grp-create'] = async () => {
     const draft = { ...l.draft, name: renames[l.draft.id] || l.draft.name };
     await store.put('recipes', draft);
   }
-  const g = await createGroup(name, l.recipeIds, renames);
+  const { group: g, touched } = await createGroup(name, l.recipeIds, renames);
   showToast('Группа «' + name + '» создана');
   const open = l.openAfter;
   if (l.fromSelection) { ui.rec.select = false; ui.rec.selected.clear(); }
@@ -155,6 +191,7 @@ actions['grp-create'] = async () => {
   closeAll();
   if (open) openLayer({ type: 'recipe', id: open, mode: 'view' });
   hooks.refreshPage();
+  if (l.fromDrop) promptLeft(touched, store.get('recipes', l.recipeIds[1])?.name || '', name);
 };
 
 actions['grp-disband-now'] = async () => {

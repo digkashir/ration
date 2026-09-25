@@ -7,6 +7,7 @@ import * as ING from './ingredients.js';
 import * as GRP from './groups.js';
 import * as RECS from './recipes.js';
 import * as REC from './recipe.js';
+import { isDragging } from './recipe-dnd.js';
 
 const NAV_ICON = {
   plan: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
@@ -292,7 +293,8 @@ store.subscribe(() => {
   updateSyncChip();
   if (store.state.rev !== lastRev) {
     lastRev = store.state.rev;
-    if (!ui.busy && store.state.data && !ui.setup) { refreshPage(); refreshLayers(); }
+    // во время перетаскивания список не перерисовываем — обновится после отпускания
+    if (!ui.busy && store.state.data && !ui.setup && !isDragging()) { refreshPage(); refreshLayers(); }
   }
 });
 

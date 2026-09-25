@@ -203,13 +203,23 @@ button.rec-row:hover:not(:disabled) { background: #fff; }
 .g-toggle { flex: 1; display: flex; align-items: center; gap: 10px; border: 0; background: transparent; padding: 0 0 0 16px; min-height: 52px; text-align: left; min-width: 0; }
 .g-toggle .caret { color: var(--muted); display: flex; }
 .g-name { font-weight: 800; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.g-kcal { margin-left: auto; font-weight: 800; padding-right: 6px; font-variant-numeric: tabular-nums; }
+.g-kcal { margin-left: auto; font-weight: 800; padding-right: 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .g-list { display: flex; flex-direction: column; gap: 4px; padding: 0 6px; }
 .g-empty { padding: 4px 12px 8px; margin: 0; }
 .rec-row.sub { background: var(--surf2); min-height: 44px; border-radius: 12px; }
 .rec-row.sub .tag:not(.meal) { background: var(--surf); }
 .rec-row.sub .r-name { font-size: 14px; }
 button.rec-row.sub:hover:not(:disabled) { background: #fff; }
+.rec-row { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.r-grip { display: inline-flex; color: var(--muted); opacity: .55; cursor: grab; margin-left: -4px; flex: 0 0 auto; }
+button.rec-row:hover .r-grip { opacity: 1; }
+.rec-group { position: relative; }
+.rec-row.drag-src { opacity: .35; }
+.drag-ghost { position: fixed; z-index: 50; pointer-events: none; margin: 0; background: #fff !important; box-shadow: 0 18px 40px rgba(0,0,0,.25), inset 0 0 0 2px var(--dark) !important; transform: rotate(1deg); opacity: .96; }
+.drop-on { box-shadow: inset 0 0 0 2px var(--acc) !important; position: relative; }
+.drop-on::after { content: attr(data-drop); position: absolute; right: 12px; top: -11px; background: var(--acc); color: #fff; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 8px; white-space: nowrap; box-shadow: var(--key-acc); z-index: 2; }
+.rec-group.reordering { box-shadow: inset 0 0 0 2px var(--dark), 0 0 0 4px rgba(57,57,60,.12); }
+body.dragging-rec, body.dragging-rec * { cursor: grabbing !important; }
 .sel-bar { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--dark); color: var(--dark-txt); border-radius: 22px; padding: 8px; display: flex; gap: 8px; align-items: center; z-index: 15; box-shadow: var(--key-dark), 0 12px 30px rgba(0,0,0,.25); max-width: calc(100vw - 24px); flex-wrap: wrap; justify-content: center; }
 .sel-n { padding: 0 10px; font-weight: 700; font-size: 14px; }
 

@@ -154,7 +154,7 @@ function rowView(r, { inGroup = false, isDefault = false } = {}) {
   const act = sel ? (disabled ? '' : 'data-a="rec-toggle"') : 'data-a="rec-open"';
   const label = sel ? (disabled ? `${r.name}: уже в группе` : `Выбрать: ${r.name}`) : `Открыть рецепт: ${r.name}`;
   return `<button class="rec-row${inGroup ? ' sub' : ''}${checked ? ' picked' : ''}" ${act} data-id="${esc(r.id)}" ${disabled ? 'disabled' : ''} aria-label="${esc(label)}" ${sel && !disabled ? `aria-pressed="${checked}"` : ''}>
-    <span class="r-name">${check}<span class="nm">${esc(r.name)}</span>${isDefault ? '<span class="chip-s dark">по умолчанию</span>' : ''}</span>
+    <span class="r-name">${check}${sel ? '' : `<span class="r-grip only-wide" aria-hidden="true" title="Перетащите на рецепт или группу">${ICON.grip}</span>`}<span class="nm">${esc(r.name)}</span>${isDefault ? '<span class="chip-s dark def">по умолчанию</span>' : ''}</span>
     <span class="r-tags">${rowTags(r)}</span>
     <span class="r-kcal">${fmt(v.kcal)}</span>
     <span class="r-bju">Б ${fmt(v.p)} · Ж ${fmt(v.f)} · У ${fmt(v.c)}</span>
@@ -172,7 +172,7 @@ function groupView(e) {
   const range = kc.length ? (Math.round(Math.min(...kc)) === Math.round(Math.max(...kc)) ? fmt(kc[0]) : fmt(Math.min(...kc)) + '–' + fmt(Math.max(...kc))) : '—';
   const cnt = f ? `${e.shown.length} из ${e.all.length}` : `группа · ${e.all.length}`;
   const firstId = e.all[0]?.id;
-  return `<div class="rec-group${open ? ' open' : ''}">
+  return `<div class="rec-group${open ? ' open' : ''}" data-gid="${esc(g.id)}">
     <div class="g-head">
       <button class="g-toggle" data-a="rec-expand" data-id="${esc(g.id)}" aria-expanded="${open}">
         <span class="caret" aria-hidden="true">${open ? ICON.up : ICON.down}</span>
@@ -194,6 +194,7 @@ export function renderList() {
   const c = $('#rec-count');
   if (c) c.textContent = filtering() ? `${nShown} из ${total}` : String(total);
   const head = `<div class="rec-row rec-head" aria-hidden="true"><span class="r-name">название</span><span class="r-tags">тэги</span><span class="r-kcal">ккал · порция</span><span class="r-bju">БЖУ, г</span><span class="r-serv">выход</span></div>`;
+  el.classList.toggle('selecting', ui.rec.select);
   el.innerHTML = items.length
     ? head + items.map((e) => (e.recipe ? rowView(e.recipe) : groupView(e))).join('')
     : `<div class="empty">Ничего не нашлось${filtering() ? '<br><button class="btn sm" data-a="rec-filter-reset">Сбросить фильтры и поиск</button>' : ''}</div>`;
