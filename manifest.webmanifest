@@ -3,7 +3,7 @@
   "short_name": "Рацион",
   "description": "Рецепты, КБЖУ, порции и список покупок. Данные на вашем Google Диске.",
   "lang": "ru",
-  "start_url": "./#/recipes",
+  "start_url": "./#/plan",
   "scope": "./",
   "display": "standalone",
   "background_color": "#E4E2DD",

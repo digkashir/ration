@@ -8,6 +8,10 @@ import * as GRP from './groups.js';
 import * as RECS from './recipes.js';
 import * as REC from './recipe.js';
 import { isDragging } from './recipe-dnd.js';
+import * as PLAN from './plan.js';
+import * as PER from './persons.js';
+import * as TAGS from './tags.js';
+import * as PDND from './plan-dnd.js';
 
 const NAV_ICON = {
   plan: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
@@ -16,14 +20,15 @@ const NAV_ICON = {
   persons: ICON.person,
 };
 const ROUTES = [
-  { id: 'plan', name: 'План', soon: 'v0.3' },
+  { id: 'plan', name: 'План' },
   { id: 'recipes', name: 'Рецепты' },
   { id: 'ingredients', name: 'Ингредиенты' },
-  { id: 'persons', name: 'Персоны', soon: 'v0.3' },
+  { id: 'persons', name: 'Персоны' },
 ];
 function route() {
   const r = (location.hash || '').replace(/^#\/?/, '');
-  return ROUTES.find((x) => x.id === r) ? r : 'recipes';
+  if (r === 'tags') return r;
+  return ROUTES.find((x) => x.id === r) ? r : 'plan';
 }
 
 window.addEventListener('ration:toast', (e) => showToast(e.detail.text, e.detail.kind));
@@ -109,6 +114,7 @@ function menuView() {
     ${!drv ? '<button role="menuitem" data-a="connect">Войти и подключить Google Диск</button>' : ''}
     ${drv ? '<button role="menuitem" data-a="sync-now">Сохранить на Диск сейчас</button>' : ''}
     ${drv && m.fileLink ? `<a role="menuitem" href="${esc(m.fileLink)}" target="_blank" rel="noopener">Открыть файл базы на Диске</a>` : ''}
+    <a role="menuitem" href="#/tags">Тэги рецептов</a>
     <button role="menuitem" data-a="backup">Скачать резервную копию (JSON)</button>
     ${drv ? '<button role="menuitem" data-a="signout">Выйти из Google на этом устройстве</button>' : ''}
     <button role="menuitem" data-a="reset">Стереть данные на этом устройстве…</button>
@@ -133,7 +139,7 @@ function render() {
     return;
   }
   const r = route();
-  const body = r === 'ingredients' ? ING.page() : r === 'recipes' ? RECS.page() : soonPage(r);
+  const body = { ingredients: ING.page, recipes: RECS.page, plan: PLAN.page, persons: PER.page, tags: TAGS.page }[r]();
   app.innerHTML = topView(r) + body;
   app.dataset.route = r;
   lastRoute = r;
@@ -143,6 +149,8 @@ function render() {
 function refreshPage() {
   if (lastRoute === 'ingredients') ING.renderList();
   else if (lastRoute === 'recipes') RECS.refresh();
+  else if (lastRoute === 'plan') PLAN.refresh();
+  else if (lastRoute === 'persons' || lastRoute === 'tags') { const m = $('main.page'); if (m) { const y = window.scrollY; m.outerHTML = lastRoute === 'persons' ? PER.page() : TAGS.page(); window.scrollTo(0, y); } }
 }
 
 // ---------------- слои: панели, диалоги, меню ----------------
@@ -152,7 +160,8 @@ function layerHtml(l) {
   switch (l.type) {
     case 'ingredient': return ING.editorView(l);
     case 'recipe': return REC.view(l);
-    case 'dialog': return REC.dialogView(l) || GRP.dialogView(l);
+    case 'dialog': return PLAN.dialogView(l) || TAGS.dialogView(l) || REC.dialogView(l) || GRP.dialogView(l);
+    case 'person': return PER.editorView(l);
     case 'menu': return menuView();
     case 'filters': return RECS.filtersSheet();
     default: return '';
@@ -172,6 +181,7 @@ function renderLayer(l, i) {
   el.innerHTML = `<div class="scrim${l.type === 'menu' ? ' clear' : ''}" data-a="layer-close"></div>` + layerHtml(l);
   $$('[data-scroll]', el).forEach((s) => { if (scroll[s.dataset.scroll] != null) s.scrollTop = scroll[s.dataset.scroll]; });
   REC.autosize(el);
+  if (l.type === 'person') PER.afterRender();
   if (fresh) {
     const af = $('[data-autofocus]', el);
     const panel = el.children[1];
@@ -200,7 +210,7 @@ function renderOverlay() {
 /** Перерисовать слои, которые показывают данные (не трогая открытые формы). */
 function refreshLayers() {
   ui.layers.forEach((l, i) => {
-    if ((l.type === 'recipe' && l.mode !== 'edit') || l.type === 'filters') renderLayer(l, i);
+    if ((l.type === 'recipe' && l.mode !== 'edit') || l.type === 'filters' || (l.type === 'dialog' && (l.kind === 'pl-eater' || l.kind === 'pl-dish'))) renderLayer(l, i);
   });
 }
 
@@ -264,8 +274,8 @@ document.addEventListener('click', (e) => {
   e.preventDefault();
   Promise.resolve(fn(t, e)).catch((err) => { console.error(err); showToast(err.message || String(err), 'error', 8000); });
 });
-document.addEventListener('submit', (e) => { ING.onSubmit(e); });
-document.addEventListener('input', (e) => { if (!REC.onInput(e)) if (!RECS.onInput(e)) ING.onInput(e); });
+document.addEventListener('submit', (e) => { if (!PER.onSubmit(e)) ING.onSubmit(e); });
+document.addEventListener('input', (e) => { if (!REC.onInput(e) && !RECS.onInput(e) && !PLAN.onInput(e) && !PER.onInput(e)) ING.onInput(e); });
 document.addEventListener('change', (e) => { if (e.target.type === 'checkbox') REC.onInput(e); });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && ui.layers.length) {
@@ -284,7 +294,8 @@ document.addEventListener('keydown', (e) => {
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     return;
   }
-  REC.onKeydown(e);
+  if (REC.onKeydown(e) || PER.onKeydown(e) || TAGS.onKeydown(e) || PLAN.onKeydown(e)) return;
+  PDND.onKeydown(e);
 });
 window.addEventListener('hashchange', () => { closeAll(); render(); window.scrollTo(0, 0); });
 
@@ -294,7 +305,7 @@ store.subscribe(() => {
   if (store.state.rev !== lastRev) {
     lastRev = store.state.rev;
     // во время перетаскивания список не перерисовываем — обновится после отпускания
-    if (!ui.busy && store.state.data && !ui.setup && !isDragging()) { refreshPage(); refreshLayers(); }
+    if (!ui.busy && store.state.data && !ui.setup && !isDragging() && !PDND.isDragging()) { refreshPage(); refreshLayers(); }
   }
 });
 

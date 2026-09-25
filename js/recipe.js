@@ -6,6 +6,7 @@ import { $, $$, esc, norm, fmt, plural, parseNum, showToast, ICON, MEAL_COLORS }
 import { totals, autoTags, tagDiff, applyAuto, RULE_TAGS } from './nutrition.js';
 import { members, deleteRecipe } from './groups.js';
 import { sortedTags, tagChip, tagsOf } from './recipes.js';
+import { persons, slotOf, dayParts, perPortionIngs } from './plan-model.js';
 
 const getIng = (id) => store.get('ingredients', id);
 const auto = (r) => autoTags(r, getIng);
@@ -87,7 +88,7 @@ function viewMode(l) {
     <footer>
       <button class="btn dark only-wide" data-a="rec-edit">Изменить</button>
       <button class="btn" data-a="rec-variant">Сделать вариант</button>
-      <button class="btn" disabled title="Появится в версии 0.3">В план · v0.3</button>
+      <button class="btn" data-a="rec-to-plan">В план</button>
       <span class="spacer"></span>
       <button class="btn danger" data-a="rec-del">Удалить</button>
     </footer>
@@ -134,6 +135,7 @@ function changedCount(l) {
 }
 
 function statusText(l) {
+  if (l.inst) { const n = changedCount(l); return `Экземпляр · ${esc(l.inst.name)} · ${esc(l.inst.when)}` + (n ? ` · изменено ${n} ${plural(n, 'поле', 'поля', 'полей')}` : ''); }
   if (l.variantOf) { const s = store.get('recipes', l.variantOf); return 'Новый вариант' + (s ? ' «' + esc(s.name) + '»' : ''); }
   if (l.isNew) return 'Новый рецепт';
   const n = changedCount(l);
@@ -156,10 +158,12 @@ function convText(it) {
 }
 
 function ingsView(l) {
+  const base = l.inst ? new Map(l.inst.base.map((b) => [b.ing, b.g])) : null;
   const rows = l.draft.ingredients.map((it, i) => {
     const x = getIng(it.ing);
     const name = x ? x.name : 'удалённый ингредиент';
-    return `<div class="ed-ing">
+    const cls = base ? (!base.has(it.ing) ? ' add' : (Math.abs(base.get(it.ing) - grams(it)) > 0.5 ? ' chg' : '')) : '';
+    return `<div class="ed-ing${cls}">
       <span class="n">${esc(name)}<small id="conv-${i}">${convText(it)}</small></span>
       <input class="qty" data-f="qty" data-i="${i}" inputmode="decimal" value="${esc(it.qty)}" aria-label="Количество: ${esc(name)}" autocomplete="off">
       <div class="seg sm unit" role="group" aria-label="Единица: ${esc(name)}">
@@ -169,7 +173,13 @@ function ingsView(l) {
       <button class="btn icon sm" data-a="ed-ing-rm" data-i="${i}" aria-label="Убрать: ${esc(name)}">×</button>
     </div>`;
   }).join('');
-  return `<h3 class="sec-title">Ингредиенты на весь рецепт</h3>${rows || '<p class="hint">Добавьте ингредиенты через поиск ниже.</p>'}
+  let removed = '';
+  if (base) {
+    const have = new Set(l.draft.ingredients.map((it) => it.ing));
+    const gone = l.inst.base.filter((b) => !have.has(b.ing));
+    if (gone.length) removed = `<div class="ed-removed"><span class="hint">Убрано:</span>${gone.map((b) => { const x = getIng(b.ing); return `<button class="chip rm" data-a="ed-inst-restore" data-ing="${esc(b.ing)}" title="Вернуть">${esc(x ? x.name : '?')} · ${fmtG(b.g)} г ↺</button>`; }).join('')}</div>`;
+  }
+  return `<h3 class="sec-title">${l.inst ? `Ингредиенты на ${fmt(l.inst.n, 1)} порц. — ${esc(l.inst.name)}` : 'Ингредиенты на весь рецепт'}</h3>${rows || '<p class="hint">Добавьте ингредиенты через поиск ниже.</p>'}${removed}
     <div class="ing-add"><label class="search dashed">${ICON.search}<span class="sr-only">Добавить ингредиент</span>
       <input id="ed-ing-q" placeholder="+ ингредиент" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="ed-sugg" aria-autocomplete="list"></label>
       <div id="ed-sugg" class="sugg" role="listbox" aria-label="Ингредиенты"></div></div>`;
@@ -230,19 +240,38 @@ function tagsView(l) {
     ${groups}<div class="auto-box">${autoBlock}</div>`;
 }
 
+function instView(l) {
+  const i = l.inst;
+  const own = draftOwn(l);
+  const baseSnap = { servings: 1, ingredients: i.base.map((b) => ({ ing: b.ing, g: b.g / i.n })) };
+  const t0 = totals(baseSnap, getIng), t1 = totals(own, getIng);
+  return `<div class="inst-info"><p class="hint">${fmt(i.n, 1)} порц. (меняется в плане) · рецепт в базе не меняется</p>
+      <div class="inst-kc"><span>1 порция</span><b>${fmt(t1.kcal)}</b><span>${Math.round(t0.kcal) !== Math.round(t1.kcal) ? 'было ' + fmt(t0.kcal) + ' · ' : ''}Б ${fmt(t1.p)} · Ж ${fmt(t1.f)} · У ${fmt(t1.c)}</span></div>
+      <button class="btn sm" data-a="ed-inst-reset">↺ Как в рецепте</button></div>
+    ${i.others.length ? `<div class="inst-apply"><b>Применить эти изменения ещё к</b><div class="chips-w">${i.others.map((o) => `<label class="check-chip"><input type="checkbox" data-f="inst-apply" value="${esc(o.id)}" ${i.apply.has(o.id) ? 'checked' : ''}><span class="ava" aria-hidden="true">${esc(o.ini)}</span>${esc(o.name)}</label>`).join('')}</div>
+      <span class="hint">Только в этом приёме. Их порции останутся прежними.</span></div>` : ''}
+    <div class="inst-save"><span class="hint">Понравилось? Экземпляр можно сохранить в базу рецептов.</span><button class="btn sm" data-a="ed-inst-recipe">+ Сохранить как рецепт…</button></div>`;
+}
+/** Черновик экземпляра → снимок на 1 порцию. */
+function draftOwn(l) {
+  const n = l.inst.n || 1;
+  return { name: l.draft.name, servings: 1, ingredients: l.draft.ingredients.map((it) => ({ ing: it.ing, g: Math.round((grams(it) / n) * 1000) / 1000, unit: it.unit })),
+    steps: l.draft.steps.map((x) => x.trim()).filter(Boolean), desc: l.draft.desc.trim(), tags: [...new Set(l.draft.tags)] };
+}
+
 function editMode(l) {
   const d = l.draft;
   const tab = (v, lbl) => `<button role="tab" data-a="ed-tab" data-v="${v}" aria-selected="${l.tab === v}">${lbl}</button>`;
-  return `<section class="drawer wide rec-edit" data-tab="${l.tab}" role="dialog" aria-modal="true" aria-label="Правка рецепта">
+  return `<section class="drawer wide rec-edit${l.inst ? ' inst' : ''}" data-tab="${l.tab}" role="dialog" aria-modal="true" aria-label="${l.inst ? 'Правка экземпляра' : 'Правка рецепта'}">
     <div class="edit-bar"><span class="dot" aria-hidden="true"></span><span id="ed-status" class="st">${statusText(l)}</span><span class="spacer"></span>
-      <button class="btn dark-soft" data-a="rec-cancel">Отмена</button><button class="btn acc" data-a="rec-save">Сохранить</button></div>
+      <button class="btn dark-soft" data-a="rec-cancel">Отмена</button><button class="btn acc" data-a="rec-save">${l.inst ? 'Готово' : 'Сохранить'}</button></div>
     <div class="ed-tabs only-narrow" role="tablist" aria-label="Разделы рецепта">${tab('main', 'Основное')}${tab('ings', 'Ингредиенты')}${tab('steps', 'Шаги')}${tab('tags', 'Тэги')}</div>
     <p class="err ed-err" id="ed-err" role="alert"></p>
     <div class="body ed-grid" data-scroll="ed">
-      <div class="ed-main" data-tab="main">
+      ${l.inst ? `<div class="ed-main inst" data-tab="main" id="ed-inst">${instView(l)}</div>` : `<div class="ed-main" data-tab="main">
         <label class="field"><span>Название рецепта</span><input data-f="name" value="${esc(d.name)}" autocomplete="off" ${l.isNew ? 'data-autofocus' : ''}></label>
         <label class="field serv"><span>Порций в рецепте</span><input data-f="servings" inputmode="decimal" value="${esc(d.servings)}" autocomplete="off"></label>
-      </div>
+      </div>`}
       <div class="ed-sum" id="ed-sum" data-tab="main ings">${sumView(l)}</div>
       <div class="ed-ings panel" id="ed-ings" data-tab="ings">${ingsView(l)}</div>
       <label class="field ed-desc" data-tab="main"><span>Описание (необязательно)</span><textarea data-f="desc" rows="2" placeholder="Коротко о блюде">${esc(d.desc)}</textarea></label>
@@ -267,6 +296,8 @@ function section(name, l) {
 let lastTagSig = '';
 function live(l) {
   const st = $('#ed-status'); if (st) st.innerHTML = statusText(l);
+  if (l.inst) { const el = $('.inst-kc'); if (el) { const tmp = document.createElement('div'); tmp.innerHTML = instView(l); el.replaceWith(tmp.querySelector('.inst-kc')); }
+    l.draft.ingredients.forEach((it, i) => { const row = $$('#ed-ings .ed-ing')[i]; if (!row) return; const b = l.inst.base.find((x) => x.ing === it.ing); row.classList.toggle('add', !b); row.classList.toggle('chg', !!b && Math.abs(b.g - grams(it)) > 0.5); }); }
   section('sum', l);
   l.draft.ingredients.forEach((it, i) => { const c = $('#conv-' + i); if (c) c.innerHTML = convText(it); });
   if (!l.isNew) {
@@ -277,7 +308,28 @@ function live(l) {
 }
 
 // ---------- сохранение ----------
+async function saveInstance(l) {
+  $$('[aria-invalid]').forEach((i) => i.removeAttribute('aria-invalid'));
+  for (let i = 0; i < l.draft.ingredients.length; i++) {
+    const n = parseNum(l.draft.ingredients[i].qty);
+    if (n == null || isNaN(n) || n <= 0) { const q = $(`[data-f="qty"][data-i="${i}"]`); if (q) { q.setAttribute('aria-invalid', 'true'); q.focus(); } $('#ed-err').textContent = 'Укажите количество больше 0 для каждого ингредиента.'; return; }
+  }
+  const e = store.get('plan', l.inst.eid); if (!e) return leaveEdit(l);
+  const x = e.eaters[l.inst.pid]; if (!x) return leaveEdit(l);
+  const own = draftOwn(l);
+  const base = e.recipes[x.rid] || e.recipes[e.main];
+  const bp = perPortionIngs(base);
+  const same = bp.length === own.ingredients.length && bp.every((b) => own.ingredients.some((o) => o.ing === b.ing && Math.abs(o.g - b.g) < 0.01)) &&
+    JSON.stringify(own.steps) === JSON.stringify(base.steps || []) && own.desc === (base.desc || '') && [...own.tags].sort().join() === [...(base.tags || [])].sort().join();
+  const eaters = { ...e.eaters, [l.inst.pid]: { ...x, own: same ? null : own } };
+  for (const pid of l.inst.apply) if (eaters[pid]) eaters[pid] = { ...eaters[pid], rid: x.rid, own: same ? null : { ...own } };
+  await store.put('plan', { ...e, eaters });
+  showToast(same ? 'Состав как в рецепте' : `Свой вариант сохранён (${l.inst.name}${l.inst.apply.size ? ' и ещё ' + l.inst.apply.size : ''})`);
+  ui.layers = ui.layers.filter((z) => z !== l); hooks.renderOverlay();
+}
+
 async function save(l) {
+  if (l.inst) return saveInstance(l);
   const d = l.draft;
   const err = $('#ed-err');
   $$('[aria-invalid]').forEach((i) => i.removeAttribute('aria-invalid'));
@@ -335,6 +387,7 @@ function toView(l, id) {
 }
 
 function leaveEdit(l) {
+  if (l.inst) { ui.layers = ui.layers.filter((x) => x !== l); hooks.renderOverlay(); return; }
   if (l.variantOf) return toView(l, l.variantOf);
   if (l.isNew) { ui.layers = ui.layers.filter((x) => x !== l); hooks.renderOverlay(); return; }
   toView(l, l.id);
@@ -345,6 +398,25 @@ function startEdit(l, draft, extra = {}) {
   lastTagSig = '';
   hooks.renderOverlay();
 }
+
+export function openInstance(eid, pid) {
+  const e = store.get('plan', eid); const p = store.get('persons', pid);
+  if (!e || !p || !e.eaters[pid]) return;
+  const x = e.eaters[pid]; const n = x.n;
+  const base = e.recipes[x.rid] || e.recipes[e.main];
+  const cur = x.own || base;
+  const scaled = (sn) => perPortionIngs(sn).map((it) => ({ ing: it.ing, g: it.g * n, unit: it.unit || 'g' }));
+  const draft = {
+    id: 'inst', name: cur.name || base.name, servings: String(n), desc: cur.desc || '', steps: [...(cur.steps || [])], tags: [...(cur.tags || [])],
+    ingredients: scaled(cur).map((it) => { const ing = getIng(it.ing); const pc = it.unit === 'pc' && ing && ing.unitWeight; return { ing: it.ing, unit: pc ? 'pc' : 'g', qty: numStr(pc ? it.g / ing.unitWeight : it.g) }; }),
+  };
+  const dp = dayParts(e.date);
+  const others = persons().filter((q) => q.id !== pid && e.eaters[q.id]).map((q) => ({ id: q.id, name: q.name, ini: q.name.trim()[0].toUpperCase() }));
+  const l = { type: 'recipe', id: 'inst', inst: { eid, pid, n, name: p.name, when: `${dp.dow} ${dp.d}, ${slotOf(e.slot).name}`, base: scaled(base).map((b) => ({ ing: b.ing, g: b.g })), others, apply: new Set() } };
+  startEdit(l, draft);
+  openLayer(l);
+}
+hooks.openInstance = openInstance;
 
 export function newRecipe() {
   const draft = { id: store.newId('rec'), name: '', servings: '1', desc: '', ingredients: [], steps: [''], tags: [] };
@@ -425,6 +497,28 @@ actions['rv-tags-accept'] = async () => {
 };
 
 // ---------- действия: правка ----------
+actions['ed-inst-restore'] = (t) => {
+  const l = editLayer(); const b = l.inst.base.find((x) => x.ing === t.dataset.ing); if (!b) return;
+  l.draft.ingredients.push({ ing: b.ing, unit: 'g', qty: numStr(b.g) });
+  section('ings', l); live(l);
+};
+actions['ed-inst-reset'] = () => {
+  const l = editLayer();
+  const e = store.get('plan', l.inst.eid); const x = e && e.eaters[l.inst.pid]; if (!x) return;
+  const base = e.recipes[x.rid] || e.recipes[e.main];
+  l.draft.ingredients = l.inst.base.map((b) => ({ ing: b.ing, unit: 'g', qty: numStr(b.g) }));
+  l.draft.steps = [...(base.steps || [])]; l.draft.desc = base.desc || ''; l.draft.tags = [...(base.tags || [])];
+  hooks.renderOverlay();
+};
+actions['ed-inst-recipe'] = () => { const l = editLayer(); openLayer({ type: 'dialog', kind: 'pl-inst-save', e: l.inst.eid, p: l.inst.pid, own: draftOwn(l) }); };
+actions['rec-to-plan'] = () => {
+  const l = topLayer(); const id = l && l.id;
+  ui.layers = []; hooks.renderOverlay();
+  if (location.hash !== '#/plan') {
+    window.addEventListener('hashchange', () => setTimeout(() => hooks.openAdd({ rid: id }), 0), { once: true });
+    location.hash = '#/plan';
+  } else hooks.openAdd({ rid: id });
+};
 actions['rec-save'] = () => { const l = editLayer(); if (l && l.mode === 'edit') save(l); };
 actions['rec-cancel'] = () => {
   const l = editLayer(); if (!l) return;
@@ -519,6 +613,7 @@ export function onInput(e) {
   if (t.id === 'ed-ing-q') { renderSugg(t.value); return true; }
   if (t.id === 'tag-q') { const pl = topLayer(); pl.q = t.value; const box = $('#tag-list'); if (box) box.innerHTML = tagPickList(pl); return true; }
   if (t.id === 'ed-auto') { const l = editLayer(); if (l) l.autoCalc = t.checked; return true; }
+  if (t.dataset && t.dataset.f === 'inst-apply') { const l = editLayer(); if (l && l.inst) { if (t.checked) l.inst.apply.add(t.value); else l.inst.apply.delete(t.value); } return true; }
   const f = t.dataset && t.dataset.f;
   if (!f || !t.closest('.rec-edit')) return false;
   const l = editLayer(); if (!l || !l.draft) return false;

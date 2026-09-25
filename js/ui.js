@@ -4,6 +4,7 @@ export const ui = {
   busy: false,
   layers: [],   // стек слоёв: { type, ... }
   ing: { q: '', group: 'all', unit: '100' },
+  plan: null, // задаётся в plan.js
   rec: { q: '', sort: 'name', filters: new Set(), expanded: new Set(), collapsed: new Set(), select: false, selected: new Set(), target: null, perPortion: true },
 };
 
