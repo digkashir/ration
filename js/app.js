@@ -12,18 +12,21 @@ import * as PLAN from './plan.js';
 import * as PER from './persons.js';
 import * as TAGS from './tags.js';
 import * as PDND from './plan-dnd.js';
+import * as SHOP from './shop.js';
 
 const NAV_ICON = {
   plan: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
   recipes: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/></svg>',
   ingredients: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 8h16l-2 11H6z"/><path d="M9 8l3-4 3 4"/></svg>',
   persons: ICON.person,
+  shop: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16l-1.5 12h-13z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg>',
 };
 const ROUTES = [
   { id: 'plan', name: 'План' },
   { id: 'recipes', name: 'Рецепты' },
   { id: 'ingredients', name: 'Ингредиенты' },
   { id: 'persons', name: 'Персоны' },
+  { id: 'shop', name: 'Покупки' },
 ];
 function route() {
   const r = (location.hash || '').replace(/^#\/?/, '');
@@ -139,7 +142,7 @@ function render() {
     return;
   }
   const r = route();
-  const body = { ingredients: ING.page, recipes: RECS.page, plan: PLAN.page, persons: PER.page, tags: TAGS.page }[r]();
+  const body = { ingredients: ING.page, recipes: RECS.page, plan: PLAN.page, persons: PER.page, tags: TAGS.page, shop: SHOP.page }[r]();
   app.innerHTML = topView(r) + body;
   app.dataset.route = r;
   lastRoute = r;
@@ -150,6 +153,7 @@ function refreshPage() {
   if (lastRoute === 'ingredients') ING.renderList();
   else if (lastRoute === 'recipes') RECS.refresh();
   else if (lastRoute === 'plan') PLAN.refresh();
+  else if (lastRoute === 'shop') SHOP.refresh();
   else if (lastRoute === 'persons' || lastRoute === 'tags') { const m = $('main.page'); if (m) { const y = window.scrollY; m.outerHTML = lastRoute === 'persons' ? PER.page() : TAGS.page(); window.scrollTo(0, y); } }
 }
 
@@ -160,7 +164,7 @@ function layerHtml(l) {
   switch (l.type) {
     case 'ingredient': return ING.editorView(l);
     case 'recipe': return REC.view(l);
-    case 'dialog': return PLAN.dialogView(l) || TAGS.dialogView(l) || REC.dialogView(l) || GRP.dialogView(l);
+    case 'dialog': return PLAN.dialogView(l) || SHOP.dialogView(l) || TAGS.dialogView(l) || REC.dialogView(l) || GRP.dialogView(l);
     case 'person': return PER.editorView(l);
     case 'menu': return menuView();
     case 'filters': return RECS.filtersSheet();
@@ -210,7 +214,7 @@ function renderOverlay() {
 /** Перерисовать слои, которые показывают данные (не трогая открытые формы). */
 function refreshLayers() {
   ui.layers.forEach((l, i) => {
-    if ((l.type === 'recipe' && l.mode !== 'edit') || l.type === 'filters' || (l.type === 'dialog' && (l.kind === 'pl-eater' || l.kind === 'pl-dish'))) renderLayer(l, i);
+    if ((l.type === 'recipe' && l.mode !== 'edit') || l.type === 'filters' || (l.type === 'dialog' && (l.kind === 'pl-eater' || l.kind === 'pl-dish' || l.kind === 'sh-cook'))) renderLayer(l, i);
   });
 }
 
@@ -275,7 +279,7 @@ document.addEventListener('click', (e) => {
   Promise.resolve(fn(t, e)).catch((err) => { console.error(err); showToast(err.message || String(err), 'error', 8000); });
 });
 document.addEventListener('submit', (e) => { if (!PER.onSubmit(e)) ING.onSubmit(e); });
-document.addEventListener('input', (e) => { if (!REC.onInput(e) && !RECS.onInput(e) && !PLAN.onInput(e) && !PER.onInput(e)) ING.onInput(e); });
+document.addEventListener('input', (e) => { if (!REC.onInput(e) && !RECS.onInput(e) && !PLAN.onInput(e) && !SHOP.onInput(e) && !PER.onInput(e)) ING.onInput(e); });
 document.addEventListener('change', (e) => { if (e.target.type === 'checkbox') REC.onInput(e); });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && ui.layers.length) {
@@ -294,7 +298,7 @@ document.addEventListener('keydown', (e) => {
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     return;
   }
-  if (REC.onKeydown(e) || PER.onKeydown(e) || TAGS.onKeydown(e) || PLAN.onKeydown(e)) return;
+  if (REC.onKeydown(e) || PER.onKeydown(e) || TAGS.onKeydown(e) || PLAN.onKeydown(e) || SHOP.onKeydown(e)) return;
   PDND.onKeydown(e);
 });
 window.addEventListener('hashchange', () => { closeAll(); render(); window.scrollTo(0, 0); });

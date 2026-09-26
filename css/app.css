@@ -735,3 +735,79 @@ ol.steps li::before { content: counter(st); width: 26px; height: 26px; border-ra
 .pd-cook { display: flex; flex-direction: column; gap: 6px; }
 .pd-cook > b { font-size: 12px; color: var(--muted); }
 .pd-cook .chip { height: 30px; font-size: 12px; }
+
+/* ================= v0.3.4 · рецепт в окнах плана, ячейка приёма ================= */
+.pt-cell[data-a] { cursor: pointer; transition: box-shadow .12s; }
+.pt-cell[data-a]:hover { box-shadow: inset 0 0 0 2px var(--line); }
+.pt-cell .stp { cursor: default; }
+.dialog.pd { width: min(980px, calc(100vw - 24px)); }
+.pd-body { display: grid; grid-template-columns: minmax(0, 440px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.pd-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.pd-rec { gap: 10px; min-width: 0; }
+.pd-rec-h { display: flex; flex-direction: column; gap: 2px; }
+.pd-rec-h b { font-size: 16px; }
+.pd-rec .seg.sm { align-self: flex-start; }
+.pd-ings .ing-line:first-child, .pa-rec .ing-line:first-child { border-top: 0; }
+.pd-rec ol.steps li, .pa-rec ol.steps li { font-size: 14px; }
+.pa-who { max-height: 52vh; overflow: auto; }
+.pa-rec { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--surf2); }
+.pa-rec-t { border: 0; background: transparent; padding: 0; text-align: left; display: flex; flex-direction: column; gap: 1px; }
+.pa-rec-t .hint { margin: 0 !important; font-size: 12px !important; }
+.pa-rec .ing-line { font-size: 13px; padding: 6px 0; }
+.pe .pa-rec { background: var(--surf); border-radius: 16px; padding: 10px 12px; border-top: 0; margin-top: 0; }
+@media (max-width: 860px) { .pd-body { grid-template-columns: 1fr; } }
+
+/* ================= v0.4 · Покупки и гид (15B) ================= */
+.shop-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.shop-top h1 { margin: 0; font-family: var(--display); font-size: 26px; font-weight: 800; }
+.shop-top .pnav h2 { margin: 0; font-family: var(--display); font-size: 17px; min-width: 230px; text-align: center; }
+.sh-export { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.shop-cols { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr); gap: 16px; align-items: start; }
+.shop-cols > .empty { grid-column: 1 / -1; }
+.sh-list { border-radius: 24px; padding: 16px; gap: 10px; }
+.sh-lh { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sh-lh h2 { margin: 0; font-size: 17px; }
+.sh-cols { columns: 2 300px; column-gap: 16px; }
+.sh-grp { break-inside: avoid; display: flex; flex-direction: column; gap: 3px; margin-bottom: 12px; }
+.sh-grp h3 { margin: 0; padding: 0 4px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.sh-item { display: flex; align-items: center; gap: 10px; padding: 4px 6px 4px 8px; border-radius: 12px; background: var(--surf2); min-height: 40px; }
+.sh-item .nm { flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh-item.done { background: transparent; }
+.sh-item.done .nm, .sh-item.done .sh-amt b, .sh-item.done .pcs { color: var(--muted); text-decoration: line-through; }
+.sh-item.zero .sh-amt b { color: var(--muted); font-weight: 600; }
+.sh-check { width: 24px; height: 24px; flex: 0 0 auto; border-radius: 7px; border: 2px solid var(--line); background: var(--surf); padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.sh-check[aria-checked="true"] { background: var(--dark); border-color: var(--dark); color: #fff; }
+.sh-amt { border: 0; background: transparent; border-radius: 10px; padding: 4px 8px; display: grid; grid-template-columns: auto 64px; column-gap: 8px; align-items: baseline; text-align: right; font-size: 14px; cursor: pointer; }
+.sh-amt:hover { background: var(--surf); box-shadow: inset 0 0 0 1.5px var(--line); }
+.sh-amt b { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sh-amt .pcs { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.sh-amt small { grid-column: 1 / -1; font-size: 11px; color: var(--acc); white-space: nowrap; }
+.sh-amt.edited b { color: var(--acc); }
+.sh-hidden { margin: 0; }
+.sh-hidden .link { font-size: 12px; }
+.sh-guide { display: flex; flex-direction: column; gap: 6px; }
+.sh-day { display: flex; flex-direction: column; gap: 5px; margin-bottom: 6px; }
+.sh-day h3 { margin: 4px 0 0; font-family: var(--display); font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.sh-day h3::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.sh-cook { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; text-align: left; background: var(--surf); border-radius: 14px; padding: 8px 12px 8px 8px; box-shadow: var(--key); }
+.sh-cook.joint { box-shadow: inset 0 0 0 2px var(--dark), var(--key); }
+.sh-cook .bar { width: 5px; align-self: stretch; border-radius: 3px; background: var(--c); flex: 0 0 auto; }
+.sh-cook .t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sh-cook .t b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh-cook .t small { font-size: 11px; color: var(--muted); }
+.sh-cook .n { font-size: 13px; white-space: nowrap; }
+.sh-loose { background: var(--surf); border-radius: 14px; padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; box-shadow: inset 0 0 0 1.5px var(--line); }
+.sh-loose > div { display: flex; gap: 8px; align-items: baseline; }
+.sh-loose > div span { flex: 1; }
+.sh-loose small { color: var(--muted); font-size: 11px; }
+.se-row { display: flex; align-items: flex-end; gap: 10px; }
+.se-row .field { flex: 1; }
+.se-row .seg.sm { align-self: flex-end; margin-bottom: 6px; }
+.se-u { padding-bottom: 14px; font-weight: 700; }
+@media (max-width: 860px) {
+  .shop-cols { grid-template-columns: minmax(0, 1fr); }
+  .shop-top h1 { font-size: 20px; width: 100%; }
+  .shop-top .pnav h2 { min-width: 0; font-size: 15px; }
+  .sh-export { width: 100%; }
+  .sh-cols { columns: 1; }
+}

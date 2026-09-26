@@ -1,5 +1,6 @@
 // База ингредиентов: список (v0.1) и редактор в боковой панели.
 import * as store from './store.js';
+import { noBuy } from './export-model.js';
 import { ui, actions, openLayer, closeLayer, topLayer } from './ui.js';
 import { $, $$, esc, norm, fmt, plural, parseNum, showToast, ICON } from './util.js';
 
@@ -93,7 +94,8 @@ export function editorView(layer) {
         <div class="grid2">${inp('unitWeight', 'вес 1 штуки, г', x.unitWeight == null ? '' : String(x.unitWeight).replace('.', ','))}
           <label class="field"><span>как называть</span><input name="unitName" value="${esc(x.unitName || 'шт')}" autocomplete="off"></label></div>
       </div>
-      <label class="field"><span>Категория (как в старой базе, необязательно)</span><input name="category" value="${esc(x.category || '')}" autocomplete="off"></label>
+      <label class="field"><span>Категория — отдел в списке покупок (овощи, мясо, молочное…)</span><input name="category" value="${esc(x.category || '')}" autocomplete="off"></label>
+      <label class="check-line"><input type="checkbox" name="noBuy" ${noBuy(x) ? 'checked' : ''}> Не покупать — не попадает в список покупок (как вода и соль), в гиде остаётся</label>
       ${used.length ? `<p class="hint">Используется в ${used.length} ${plural(used.length, 'рецепте', 'рецептах', 'рецептах')}: ${used.slice(0, 4).map((r) => '«' + esc(r.name) + '»').join(', ')}${used.length > 4 ? '…' : ''}.</p>` : ''}
       <p class="err" id="ing-err" role="alert"></p>
     </form>
@@ -134,6 +136,7 @@ async function save() {
     unitWeight: uw == null ? null : uw,
     unitName: uw == null ? null : (String(fd.get('unitName') || '').trim() || 'шт'),
     category: String(fd.get('category') || '').trim(),
+    noBuy: fd.get('noBuy') === 'on',
   };
   await store.put('ingredients', rec);
   showToast((isNew ? 'Добавлен' : 'Сохранён') + ' ингредиент «' + name + '»');

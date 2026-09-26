@@ -24,7 +24,7 @@ function shortName(name, group) {
   return name;
 }
 
-function amountText(it, div) {
+export function amountText(it, div) {
   const x = getIng(it.ing);
   const g = (Number(it.g) || 0) / div;
   if (x && x.unitWeight) {

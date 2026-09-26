@@ -78,6 +78,22 @@ const DRIVE = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 const META_FIELDS = 'id,name,version,modifiedTime,webViewLink,parents';
 
+/** Запрос к API Google от имени пользователя (Диск, Таблицы). */
+export const request = (url, opts) => api(url, opts);
+/** Сведения о файле (в том числе, не в корзине ли он). */
+export async function fileInfo(id) {
+  const r = await api(DRIVE + '/files/' + id + '?supportsAllDrives=true&fields=id,name,trashed,webViewLink');
+  return r.json();
+}
+/** Пустая Google Таблица в папке приложения (доступ drive.file: приложение видит её как свою). */
+export async function createSheetFile(name, folderId) {
+  const r = await api(DRIVE + '/files?supportsAllDrives=true&fields=id,name,webViewLink', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.spreadsheet', parents: folderId ? [folderId] : undefined }),
+  });
+  return r.json();
+}
+
 export async function about() {
   const r = await api(DRIVE + '/about?fields=' + encodeURIComponent('user(displayName,emailAddress)'));
   return (await r.json()).user;

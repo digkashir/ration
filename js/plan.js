@@ -10,6 +10,7 @@ import {
   cookOf, cookBlock, cookDays, cookAfterMove,
 } from './plan-model.js';
 import { cookView, cookTarget } from './plan-cook.js';
+import { amountText } from './recipe.js';
 
 const T = today();
 ui.plan = ui.plan || {
@@ -174,7 +175,7 @@ function stepInfo(e) {
 }
 function stepper(e, pid, n) {
   const s = stepInfo(e);
-  return `<span class="stp"><button data-a="pl-n" data-e="${esc(e.id)}" data-p="${esc(pid)}" data-d="-1" aria-label="Меньше" ${n <= s.min ? 'disabled' : ''}>−</button><b>${num(n)}${s.unit ? `<small>${s.unit}</small>` : ''}</b><button class="dark" data-a="pl-n" data-e="${esc(e.id)}" data-p="${esc(pid)}" data-d="1" aria-label="Больше">+</button></span>`;
+  return `<span class="stp" data-a="stp"><button data-a="pl-n" data-e="${esc(e.id)}" data-p="${esc(pid)}" data-d="-1" aria-label="Меньше" ${n <= s.min ? 'disabled' : ''}>−</button><b>${num(n)}${s.unit ? `<small>${s.unit}</small>` : ''}</b><button class="dark" data-a="pl-n" data-e="${esc(e.id)}" data-p="${esc(pid)}" data-d="1" aria-label="Больше">+</button></span>`;
 }
 
 function rowView(e, ps, simMap) {
@@ -183,7 +184,8 @@ function rowView(e, ps, simMap) {
     if (!x) return `<button class="pt-cell empty" data-a="pl-eater-add" data-e="${esc(e.id)}" data-p="${esc(p.id)}" data-drop-cell="${esc(e.id)}|${esc(p.id)}" aria-label="Добавить: ${esc(p.name)}">+ добавить</button>`;
     const v = eaterValues(e, p.id);
     const lab = variantLabel(e, p.id);
-    return `<div class="pt-cell" data-drop-cell="${esc(e.id)}|${esc(p.id)}">
+    // вся ячейка приёма открывает окно персоны; степпер и «×» работают сами по себе
+    return `<div class="pt-cell" data-drop-cell="${esc(e.id)}|${esc(p.id)}" data-a="pl-eater" data-e="${esc(e.id)}" data-p="${esc(p.id)}">
       <div class="pt-ct">${stepper(e, p.id, x.n)}<b class="kc">${fmt(v.kcal)}</b></div>
       <button class="pt-cb" data-a="pl-eater" data-e="${esc(e.id)}" data-p="${esc(p.id)}" aria-label="${esc(p.name)}: подробнее">Б ${fmt(v.p)} · Ж ${fmt(v.f)} · У ${fmt(v.c)}${lab ? `<span class="vchip${x.own ? ' own' : ''}">${esc(lab)}</span>` : ''}</button>
       <button class="pt-x" data-a="pl-eater-rm" data-e="${esc(e.id)}" data-p="${esc(p.id)}" aria-label="${esc(p.name)}: убрать из приёма">×</button></div>`;
@@ -202,7 +204,7 @@ function summaryView(ps, days) {
     return `<span class="ps-avg">${ava(p, 'sm')}${n ? `${fmt(sum / n)}${g.kcal ? ' · ' + Math.round((sum / n / g.kcal) * 100) + '%' : ''}` : '—'}</span>`;
   }).join('');
   return `<div class="pt-sum"><b>В среднем в день</b><span class="hint">по дням, где есть приёмы</span>${cols}<span class="spacer"></span>
-    <button class="btn sm" disabled title="Появится в версии 0.4">Покупки и гид · v0.4</button></div>`;
+    <a class="btn sm dark" href="#/shop">Покупки и гид</a></div>`;
 }
 
 // ---------- телефон ----------
@@ -369,8 +371,16 @@ function addWho(l) {
       <span class="stp"><button data-a="pa-n" data-p="${esc(p.id)}" data-d="-${s.step}" ${w.n <= s.min ? 'disabled' : ''} aria-label="Меньше">−</button><b>${num(w.n)}</b><button class="dark" data-a="pa-n" data-p="${esc(p.id)}" data-d="${s.step}" aria-label="Больше">+</button></span>
       <button class="btn icon sm" data-a="pa-who" data-p="${esc(p.id)}" aria-label="Убрать ${esc(p.name)}">×</button></div>`;
   }).join('');
+  // рецепт выбранного блюда (вариант первой отмеченной персоны): ингредиенты на 1 порцию и шаги
+  let prev = '';
+  if (!l.pick.ing) {
+    const w = Object.values(l.who).find((z) => z.on && z.rid);
+    const r = store.get('recipes', (w && w.rid) || l.pick.rid);
+    if (r) prev = `<div class="pa-rec"><button class="pa-rec-t" data-a="pa-rec" aria-expanded="${!l.recHide}"><b>Рецепт${grp ? ' «' + esc(r.name) + '»' : ''}</b><span class="hint">ингредиенты на 1 порцию и шаги · ${l.recHide ? 'показать' : 'скрыть'}</span></button>
+      ${l.recHide ? '' : recipeHtml(snap(r), 1)}</div>`;
+  }
   return `<div class="pa-wh"><b>Кому и сколько${grp ? ' · вариант' : ''}</b>${unitSeg}</div>${rows}
-    <p class="hint">${l.tab === 'ing' ? (l.unit === 'pc' ? 'Шаг 0,5 шт.' : 'Шаг 10 г.') : 'По умолчанию всем по 1 порции' + (grp ? ' варианта «по умолчанию»' : '') + '. Шаг 0,5, меньше 0,5 нельзя.'}</p>`;
+    <p class="hint">${l.tab === 'ing' ? (l.unit === 'pc' ? 'Шаг 0,5 шт.' : 'Шаг 10 г.') : 'По умолчанию всем по 1 порции' + (grp ? ' варианта «по умолчанию»' : '') + '. Шаг 0,5, меньше 0,5 нельзя.'}</p>${prev}`;
 }
 
 function addGoText(l) {
@@ -395,7 +405,7 @@ function addView(l) {
       <button class="btn icon sm" data-a="layer-close" aria-label="Закрыть">×</button></div>
     <div class="pa-slots" role="group" aria-label="Приём">${SLOTS.map((s) => `<button class="chip meal" style="--c:${slotVar(s.id)}" data-a="pa-slot" data-v="${s.id}" aria-pressed="${l.slot === s.id}">${s.name}</button>`).join('')}</div>
     <label class="search">${ICON.search}<span class="sr-only">Поиск</span><input id="pa-q" type="search" value="${esc(l.q)}" placeholder="${l.tab === 'ing' ? 'Найти ингредиент' : 'Блюдо или ингредиент'}" autocomplete="off" data-autofocus></label>
-    <div class="pa-cols"><div class="pa-list" id="pa-list" data-scroll="pa-list">${addList(l)}</div><div class="pa-who panel" id="pa-who">${addWho(l)}</div></div>
+    <div class="pa-cols"><div class="pa-list" id="pa-list" data-scroll="pa-list">${addList(l)}</div><div class="pa-who panel" id="pa-who" data-scroll="pa-who">${addWho(l)}</div></div>
     <p class="err" id="pa-err" role="alert"></p></div>
     <div class="dlg-foot"><button class="btn acc wide" data-a="pa-go" id="pa-go" ${l.pick ? '' : 'disabled'}>${addGoText(l)}</button></div></section>`;
 }
@@ -405,6 +415,7 @@ function paUpdate(l, parts = ['list', 'who', 'go']) {
   if (parts.includes('go')) { const b = $('#pa-go'); if (b) { b.textContent = addGoText(l); b.disabled = !l.pick; } }
 }
 const paL = () => { const l = topLayer(); return l && l.kind === 'pl-add' ? l : null; };
+actions['pa-rec'] = () => { const l = paL(); l.recHide = !l.recHide; paUpdate(l, ['who']); const b = $('[data-a="pa-rec"]'); if (b) b.focus(); };
 actions['pa-tab'] = (t) => { const l = paL(); l.tab = t.dataset.v; l.pick = null; l.q = ''; hooks.renderOverlay(); };
 actions['pa-slot'] = (t) => { const l = paL(); l.slot = t.dataset.v; l._slotTouched = true; $$('[data-a="pa-slot"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === l.slot))); paUpdate(l, ['list', 'go']); };
 actions['pa-pick'] = (t) => { const l = paL(); pick(l, t.dataset.ing ? { ing: t.dataset.ing } : t.dataset.gid ? { gid: t.dataset.gid } : { rid: t.dataset.rid });
@@ -459,6 +470,8 @@ function eaterView(l) {
     <div class="pe-h">${ava(p, 'lg')}<div><h2 id="pe-title">${esc(p.name)} · ${slotOf(e.slot).name}</h2><span class="hint">${esc(entryName(e))} · ${dayParts(e.date).dow} ${dayParts(e.date).d}</span></div><span class="spacer"></span>${stepper(e, l.p, x.n)}</div>
     <p class="hint">${fmt(v.kcal)} ккал · Б ${fmt(v.p)} · Ж ${fmt(v.f)} · У ${fmt(v.c)}</p>
     ${variants}${own}
+    ${e.kind === 'dish' && eaterRecipe(e, l.p) ? `<div class="pa-rec"><button class="pa-rec-t" data-a="pe-rec" aria-expanded="${!!l.recOpen}"><b>Рецепт</b><span class="hint">ингредиенты на ${num(x.n)} ${plural(Math.ceil(x.n), 'порцию', 'порции', 'порций')} и шаги · ${l.recOpen ? 'скрыть' : 'показать'}</span></button>
+      ${l.recOpen ? recipeHtml(eaterRecipe(e, l.p), x.n) : ''}</div>` : ''}
     <div class="menu-list">
       ${e.kind === 'dish' ? `<button data-a="pe-edit">✎ Изменить состав — только в этом приёме…</button>` : ''}
       ${e.kind === 'dish' && x.own ? `<button data-a="pe-reset">↺ Как в рецепте</button><button data-a="pe-save" class="acc-t">+ Сохранить как рецепт…</button>` : ''}
@@ -475,9 +488,47 @@ actions['pe-var'] = async (t) => {
   if (had) showToast('Свой вариант заменён выбранным рецептом');
   hooks.renderOverlay();
 };
+actions['pe-rec'] = () => { const l = topLayer(); l.recOpen = !l.recOpen; hooks.renderOverlay(); };
 actions['pe-reset'] = async () => { const l = topLayer(); const e = getE(l.e); await putE(withEater(e, l.p, (x) => ({ ...x, own: null }))); hooks.renderOverlay(); };
 actions['pe-edit'] = () => { const l = topLayer(); hooks.openInstance(l.e, l.p); };
 actions['pe-save'] = () => { const l = topLayer(); const e = getE(l.e); openLayer({ type: 'dialog', kind: 'pl-inst-save', e: l.e, p: l.p, own: e.eaters[l.p].own }); };
+
+// ---------- рецепт внутри окон плана: ингредиенты и шаги ----------
+function recipeHtml(s, k) {
+  // s — снимок рецепта, k — на сколько порций показать количество
+  const div = (Number(s.servings) || 1) / (k || 1);
+  const ings = (s.ingredients || []).map((it) => { const x = getIng(it.ing);
+    return `<div class="ing-line"><span>${x ? esc(x.name) : '<i class="hint">удалённый ингредиент</i>'}</span><span class="amt">${amountText(it, div)}</span></div>`; }).join('');
+  const steps = s.steps || [];
+  return `<div class="pd-ings">${ings || '<p class="hint">Ингредиентов нет</p>'}</div>
+    ${s.desc ? `<p class="rv-desc">${esc(s.desc)}</p>` : ''}
+    <h3 class="rv-sub">Приготовление · ${steps.length} ${plural(steps.length, 'шаг', 'шага', 'шагов')}</h3>
+    ${steps.length ? `<ol class="steps">${steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : '<p class="hint">Шагов нет.</p>'}`;
+}
+/** Рецепты приёма: по одному на каждый вариант (рецепт группы или свой вариант персоны). */
+function dishVariants(e) {
+  const out = []; const by = new Map();
+  for (const p of persons()) {
+    const x = e.eaters && e.eaters[p.id]; if (!x) continue;
+    const key = x.own ? 'own|' + p.id : x.rid || e.main;
+    let v = by.get(key);
+    if (!v) { v = { key, s: x.own || e.recipes[x.rid] || e.recipes[e.main], own: !!x.own, n: 0, who: [] }; by.set(key, v); out.push(v); }
+    v.n += x.n; v.who.push(p.name);
+  }
+  if (!out.length && e.recipes[e.main]) out.push({ key: e.main, s: e.recipes[e.main], own: false, n: 1, who: [] });
+  return out.filter((v) => v.s);
+}
+function dishRecipe(e, l) {
+  if (e.kind !== 'dish') return '';
+  const vs = dishVariants(e); if (!vs.length) return '';
+  const i = Math.min(l.rv || 0, vs.length - 1); const v = vs[i];
+  const per = !!l.per1;
+  const tabs = vs.length > 1 ? `<div class="chips-w pd-rvs" role="group" aria-label="Варианты в приёме">${vs.map((x, j) => `<button class="chip" data-a="pd-rv" data-v="${j}" aria-pressed="${j === i}">${esc(x.own ? 'Свой вариант · ' + x.who.join(', ') : x.s.name)}</button>`).join('')}</div>` : '';
+  return `<div class="pd-rec-h"><b>${esc(v.own ? v.s.name + ' — свой вариант' : v.s.name)}</b>${v.who.length ? `<span class="hint">${esc(v.who.join(', '))} · ${num(v.n)} ${plural(Math.ceil(v.n), 'порция', 'порции', 'порций')}</span>` : ''}</div>
+    ${tabs}
+    <div class="seg sm" role="group" aria-label="Количество"><button data-a="pd-per" data-v="0" aria-pressed="${!per}">на этот приём · ${num(v.n)} порц.</button><button data-a="pd-per" data-v="1" aria-pressed="${per}">на 1 порцию</button></div>
+    ${recipeHtml(v.s, per ? 1 : v.n)}`;
+}
 
 // ---------- меню блюда ----------
 function dishMenuView(l) {
@@ -493,13 +544,15 @@ function dishMenuView(l) {
     }).join('')}${ps.filter((p) => !(e.eaters && e.eaters[p.id])).map((p) => `<button class="btn sm ghost" data-a="pl-eater-add" data-e="${esc(e.id)}" data-p="${esc(p.id)}">+ ${esc(p.name)}</button>`).join('')}</div>`;
     if (e.kind === 'dish') cook = `<div class="pd-cook"><b>Готовить</b><div class="chips-w">${cookDays(e).map((c) => { const x = dayParts(c); return `<button class="chip" data-a="pd-cook" data-v="${c}" aria-pressed="${cookOf(e) === c}">${x.dow} ${x.d}${c === e.date ? ' · в день приёма' : ''}</button>`; }).join('')}</div></div>`;
   }
-  return `<section class="dialog small" role="dialog" aria-modal="true" aria-labelledby="pd-title"><div class="dlg-body">
+  const rec = dishRecipe(e, l);
+  return `<section class="dialog pd${rec ? '' : ' small'}" role="dialog" aria-modal="true" aria-labelledby="pd-title"><div class="dlg-body pd-body" data-scroll="pd-body"><div class="pd-main">
     <h2 id="pd-title">${esc(entryName(e))}</h2><span class="hint">${dayParts(e.date).dow}, ${dayParts(e.date).d} ${dayParts(e.date).monf} · ${slotOf(e.slot).name}${cookNote(e) ? ' · ' + cookNote(e) : ''}</span>
     ${people}${cook}
     <div class="pa-slots" role="group" aria-label="Приём">${SLOTS.map((s) => `<button class="chip meal" style="--c:${slotVar(s.id)}" data-a="pd-slot" data-v="${s.id}" aria-pressed="${e.slot === s.id}">${s.name}</button>`).join('')}</div>
     <div class="pd-move"><label class="field"><span>Перенести на день</span><input type="date" id="pd-date" value="${l.date}"></label><button class="btn" data-a="pd-move">Перенести</button></div>
     <div class="menu-list">${base ? `<button data-a="pd-open">Открыть рецепт «${esc(base.name)}»</button>` : ''}
       <button data-a="pd-del" class="danger">Удалить из плана</button></div></div>
+    ${rec ? `<div class="pd-rec panel" aria-label="Рецепт">${rec}</div>` : ''}</div>
     <div class="dlg-foot"><button class="btn" data-a="layer-close">Готово</button></div></section>`;
 }
 actions['pd-slot'] = async (t) => { const l = topLayer(); const e = getE(l.e); if (e.slot === t.dataset.v) return; await putE({ ...e, slot: t.dataset.v, order: nextOrder(e.date, t.dataset.v) }); hooks.renderOverlay(); };
@@ -511,6 +564,8 @@ actions['pd-move'] = async () => {
   closeLayer(); P.expanded.add(d);
   showToast(`«${entryName(e)}» перенесено на ${dayParts(d).dow} ${dayParts(d).d}` + (c.reset ? '. Готовка тоже перенесена на этот день: прежний день приготовления не подходит' : ''));
 };
+actions['pd-rv'] = (t) => { const l = topLayer(); l.rv = Number(t.dataset.v); hooks.renderOverlay(); };
+actions['pd-per'] = (t) => { const l = topLayer(); l.per1 = t.dataset.v === '1'; hooks.renderOverlay(); };
 actions['pd-cook'] = async (t) => { const l = topLayer(); await setCook(l.e, t.dataset.v); const b = $(`[data-a="pd-cook"][data-v="${t.dataset.v}"]`); if (b) b.focus(); };
 actions['pd-open'] = () => { const l = topLayer(); const e = getE(l.e); closeLayer(); openLayer({ type: 'recipe', id: e.main, mode: 'view' }); };
 actions['pd-del'] = async () => { const l = topLayer(); const e = getE(l.e); await store.remove('plan', e.id); closeLayer(); showToast(`«${entryName(e)}» удалено из плана`); };
@@ -592,7 +647,7 @@ export function onInput(e) {
   const l = paL();
   if (l && t.id === 'pa-q') { l.q = t.value; paUpdate(l, ['list']); return true; }
   if (l && t.id === 'pa-date') { if (t.value) { l.date = t.value; const h = $('#pa-title'); const dp = dayParts(l.date); if (h) h.textContent = `Добавить в ${dp.dow}, ${dp.d} ${dp.mon}`; } return true; }
-  if (l && t.dataset.f === 'pa-rid') { l.who[t.dataset.p].rid = t.value; paUpdate(l, ['go']); return true; }
+  if (l && t.dataset.f === 'pa-rid') { l.who[t.dataset.p].rid = t.value; paUpdate(l, ['go']); const pr = $('.pa-rec'); if (pr) { const tmp = document.createElement('div'); tmp.innerHTML = addWho(l); const n = tmp.querySelector('.pa-rec'); if (n) pr.replaceWith(n); } return true; }
   return false;
 }
 export function onKeydown(e) {
@@ -606,5 +661,10 @@ export function onKeydown(e) {
   if (e.target.id === 'pa-q' && e.key === 'Enter') { e.preventDefault(); const f = $('#pa-list .pa-item'); if (f) f.click(); return true; }
   return false;
 }
+/** Сдвиг периода плана (страница покупок пользуется тем же периодом). dir = 0 — к сегодняшнему дню. */
+export function shiftPeriod(dir, date) {
+  if (dir === 0) { setLen(P.len === 'custom' ? 'week' : P.len, date || today()); P.expanded = new Set([date || today()]); return; }
+  shift(dir);
+}
 export { stepInfo, getE, putE, P as planState, setLen };
-export const _unused = { iso, eaterRecipe, ingGrams, cookBlock };
+export const _unused = { iso, ingGrams, cookBlock };
