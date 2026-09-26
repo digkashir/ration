@@ -324,3 +324,23 @@ store.init().then(() => {
   console.error(e);
   $('#app').innerHTML = `<div class="welcome"><div class="card"><h1>рацион<i>.</i></h1><p>Не удалось запустить приложение: ${esc(e.message)}</p></div></div>`;
 });
+
+// ---------------- подсказка с полным названием, если оно обрезано ----------------
+const TIP_SEL = '.nm, .g-name, .pt-dn b, .pa-item small, .pp-cn b, .pp-who b';
+let tipEl = null;
+function hideTip() { if (tipEl) { tipEl.remove(); tipEl = null; } }
+document.addEventListener('mouseover', (e) => {
+  const el = e.target.closest && e.target.closest(TIP_SEL);
+  if (!el) { hideTip(); return; }
+  if (el.scrollWidth <= el.clientWidth + 1 || document.body.classList.contains('dragging-rec')) { hideTip(); return; }
+  hideTip();
+  tipEl = document.createElement('div');
+  tipEl.className = 'tip'; tipEl.setAttribute('role', 'tooltip');
+  tipEl.textContent = el.textContent.trim();
+  document.body.appendChild(tipEl);
+  const r = el.getBoundingClientRect(); const t = tipEl.getBoundingClientRect();
+  let x = r.left; if (x + t.width > window.innerWidth - 8) x = window.innerWidth - 8 - t.width;
+  let y = r.top - t.height - 6; if (y < 8) y = r.bottom + 6;
+  tipEl.style.left = Math.max(8, x) + 'px'; tipEl.style.top = y + 'px';
+});
+['scroll', 'pointerdown', 'keydown'].forEach((ev) => window.addEventListener(ev, hideTip, true));

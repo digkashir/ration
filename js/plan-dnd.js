@@ -1,10 +1,11 @@
 // Перетаскивание в плане: рецепт из боковой базы → в день (добавить) или в ячейку персоны (сменить вариант, Q-56);
 // строка блюда за ⋮⋮ → новый порядок внутри своего приёма (Q-48).
 import * as store from './store.js';
-import { ui } from './ui.js';
+import { ui, openLayer } from './ui.js';
+import { members, addToGroup, promptLeft, setOrder } from './groups.js';
 import { $$, showToast } from './util.js';
 import { snap, entryName, dayEntries } from './plan-model.js';
-import { openAdd, refresh } from './plan.js';
+import { openAdd, refresh, refreshSide, planState } from './plan.js';
 
 let st = null;
 export const isDragging = () => !!(st && st.dragging);
@@ -30,6 +31,7 @@ function begin() {
     g.style.width = st.el.getBoundingClientRect().width + 'px';
     document.body.appendChild(g); st.ghost = g;
   } else st.el.classList.add('dragging');
+  if (st.kind === 'recipe' && st.rid) st.el.classList.add('drag-src');
   document.body.classList.add('dragging-rec');
 }
 
@@ -49,6 +51,31 @@ function onMove(e) {
     return;
   }
   let t = null;
+  // внутри списка рецептов плана — те же действия, что в разделе «Рецепты»
+  const psItem = el && el.closest('.ps-item[data-drag-rid]');
+  const psGroup = el && el.closest('.ps-group[data-gid]');
+  if (st.rid && (psItem || psGroup)) {
+    const src = store.get('recipes', st.rid);
+    const srcG = src && src.groupId && store.get('groups', src.groupId) ? src.groupId : null;
+    if (psGroup) {
+      const gid = psGroup.dataset.gid;
+      if (gid === srcG) {
+        if (psItem && psItem !== st.el && psItem.parentElement === st.el.parentElement) {
+          const r = psItem.getBoundingClientRect();
+          psItem.parentElement.insertBefore(st.el, e.clientY < r.top + r.height / 2 ? psItem : psItem.nextElementSibling);
+          st.moved = true;
+        }
+        t = { kind: 'reorder', el: psGroup, gid, ok: true };
+      } else {
+        const g = store.get('groups', gid);
+        t = { kind: 'side-group', el: psGroup, gid, ok: true, label: 'добавить в «' + (g ? g.name : '') + '»' };
+      }
+    } else if (psItem && psItem !== st.el) {
+      t = { kind: 'side-recipe', el: psItem, id: psItem.dataset.dragRid, ok: true, label: 'объединить в группу' };
+    }
+    setTarget(t);
+    return;
+  }
   const cell = el && el.closest('[data-drop-cell]');
   const day = el && el.closest('[data-drop-day]');
   if (cell) {
@@ -61,9 +88,11 @@ function onMove(e) {
   setTarget(t);
 }
 function setTarget(t) {
-  if (st.target && (!t || st.target.el !== t.el)) { st.target.el.classList.remove('drop-on', 'drop-bad'); st.target.el.removeAttribute('data-drop'); }
+  if (st.target && (!t || st.target.el !== t.el || st.target.kind !== t.kind)) { st.target.el.classList.remove('drop-on', 'drop-bad', 'reordering'); st.target.el.removeAttribute('data-drop'); }
   st.target = t;
-  if (t) { t.el.classList.add(t.ok ? 'drop-on' : 'drop-bad'); t.el.setAttribute('data-drop', t.label); }
+  if (!t) return;
+  if (t.kind === 'reorder') { t.el.classList.add('reordering'); return; }
+  t.el.classList.add(t.ok ? 'drop-on' : 'drop-bad'); t.el.setAttribute('data-drop', t.label);
 }
 
 async function onUp(e) {
@@ -82,7 +111,32 @@ async function onUp(e) {
     return;
   }
   const t = s.target;
-  if (!t || !t.ok) return;
+  if (!t || !t.ok) { if (s.moved) refreshSide(); return; }
+  if (t.kind === 'side-recipe') {
+    const target = store.get('recipes', t.id); refreshSide();
+    if (target) openLayer({ type: 'dialog', kind: 'group-new', recipeIds: [target.id, s.rid], sourceId: null, groupName: target.name, fromDrop: true });
+    return;
+  }
+  if (t.kind === 'side-group') {
+    const g = store.get('groups', t.gid); const r = store.get('recipes', s.rid); if (!g || !r) { refreshSide(); return; }
+    const wasIn = r.groupId && store.get('groups', r.groupId);
+    const touched = await addToGroup(g.id, [r.id]);
+    planState.side.open.add(g.id); refreshSide();
+    showToast(`«${r.name}» ${wasIn ? 'перенесён' : 'добавлен'} в группу «${g.name}»`);
+    promptLeft(touched, r.name, g.name);
+    return;
+  }
+  if (t.kind === 'reorder') {
+    const visible = [...t.el.querySelectorAll('.ps-item.sub[data-drag-rid]')].map((x) => x.dataset.dragRid);
+    const full = members(t.gid).map((r) => r.id); const vis = new Set(visible); let k = 0;
+    const order = full.map((id) => (vis.has(id) ? visible[k++] : id));
+    if (order.join() !== full.join()) {
+      await setOrder(t.gid, order);
+      if (order[0] !== full[0]) { const r = store.get('recipes', order[0]); if (r) showToast(`«${r.name}» теперь рецепт по умолчанию`); }
+    }
+    refreshSide();
+    return;
+  }
   if (t.kind === 'day') { openAdd({ date: t.date, rid: s.rid, gid: s.rid ? null : s.gid }); return; }
   const en = store.get('plan', t.eid); const r = store.get('recipes', s.rid);
   if (!en || !r) return;
@@ -97,8 +151,8 @@ async function onUp(e) {
 function cleanup() {
   if (!st) return;
   if (st.ghost) st.ghost.remove();
-  if (st.el) st.el.classList.remove('dragging');
-  if (st.target) { st.target.el.classList.remove('drop-on', 'drop-bad'); st.target.el.removeAttribute('data-drop'); }
+  if (st.el) st.el.classList.remove('dragging', 'drag-src');
+  if (st.target) { st.target.el.classList.remove('drop-on', 'drop-bad', 'reordering'); st.target.el.removeAttribute('data-drop'); }
   document.body.classList.remove('dragging-rec');
   window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); window.removeEventListener('pointercancel', cleanup);
   st = null;

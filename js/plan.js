@@ -43,16 +43,16 @@ export function page() {
     <section class="plan-main">
       <div class="plan-top">
         <div class="seg only-wide" role="group" aria-label="Режим плана"><button aria-pressed="true">По дням приёма</button><button disabled title="Режим «По дням приготовления» появится в версии 0.3.1">Приготовление · v0.3.1</button></div>
-        <div class="pnav"><button class="btn icon sm" data-a="pl-prev" aria-label="Раньше">‹</button><h1 id="pl-title"></h1><button class="btn icon sm" data-a="pl-next" aria-label="Позже">›</button>
+        <div class="pnav-wrap"><div class="pnav"><button class="btn icon sm" data-a="pl-prev" aria-label="Раньше">‹</button><h1 id="pl-title"></h1><button class="btn icon sm" data-a="pl-next" aria-label="Позже">›</button>
           <button class="link" data-a="pl-today">сегодня</button></div>
-        <span class="spacer"></span>
-        <div class="seg only-wide" role="group" aria-label="Период">${segs}</div>
+        <div class="seg only-wide" role="group" aria-label="Период">${segs}</div></div>
       </div>
       <div id="plan-body"></div>
     </section>
   </main>`;
 }
 
+export function refreshSide() { const side = $('#plan-side'); if (side) side.innerHTML = sideView(); }
 export function refresh() {
   if (!$('#plan-body')) return;
   $('#pl-title').textContent = rangeTitle(P.from, P.to);
@@ -81,15 +81,15 @@ function sideView() {
   const items = sideItems().slice(0, 80).map((x) => {
     if (x.r) return `<button class="ps-item" data-a="pl-side-pick" data-rid="${esc(x.r.id)}" data-drag-rid="${esc(x.r.id)}">${ICON.grip}<span class="nm">${esc(x.r.name)}</span><b>${kcal(x.r)}</b></button>`;
     const open = P.side.open.has(x.g.id) || !!P.side.q;
-    return `<div class="ps-group${open ? ' open' : ''}">
+    return `<div class="ps-group${open ? ' open' : ''}" data-gid="${esc(x.g.id)}">
       <div class="ps-gh"><button class="ps-gt" data-a="pl-side-group" data-id="${esc(x.g.id)}" aria-expanded="${open}" data-drag-gid="${esc(x.g.id)}">${ICON.grip}<span class="nm">${esc(x.g.name)}</span><span class="chip-s dark">группа · ${x.all.length}</span></button></div>
-      ${open ? x.m.map((r, i) => `<button class="ps-item sub" data-a="pl-side-pick" data-rid="${esc(r.id)}" data-drag-rid="${esc(r.id)}">${ICON.grip}<span class="nm">${esc(r.name)}</span>${r.id === x.all[0].id ? '<span class="chip-s dark">по умолч.</span>' : ''}<b>${kcal(r)}</b></button>`).join('') : ''}</div>`;
+      ${open ? x.m.map((r, i) => `<button class="ps-item sub" data-a="pl-side-pick" data-rid="${esc(r.id)}" data-drag-rid="${esc(r.id)}" data-in-gid="${esc(x.g.id)}">${ICON.grip}<span class="nm">${esc(r.name)}</span>${r.id === x.all[0].id ? '<span class="chip-s dark">по умолч.</span>' : ''}<b>${kcal(r)}</b></button>`).join('') : ''}</div>`;
   }).join('');
   return `<div class="ps-head"><h2>Рецепты</h2></div>
     <label class="search">${ICON.search}<span class="sr-only">Поиск рецепта</span><input id="ps-q" type="search" placeholder="Блюдо или ингредиент" value="${esc(P.side.q)}" autocomplete="off"></label>
     <div class="f-chips">${chips}</div>
     <div class="ps-list" id="ps-list">${items || '<p class="hint">Ничего не нашлось</p>'}</div>
-    <p class="hint">Нажмите, чтобы добавить, или перетащите в день либо в ячейку персоны (сменить вариант).</p>`;
+    <p class="hint">Нажмите, чтобы добавить, или перетащите в день либо в ячейку персоны (сменить вариант). Внутри списка: на рецепт — новая группа, на группу — добавить в неё, в раскрытой группе — порядок.</p>`;
 }
 
 // ---------- тело плана ----------
