@@ -1,7 +1,7 @@
 // Настройки подключения к Google. Эти значения не секретные:
 // они защищены ограничением на адрес https://digkashir.github.io
 export const CONFIG = {
-  version: '0.3.2',
+  version: '0.3.3',
   clientId: '299241992215-8a6dmdsn20etn08hpqo8bjfo2d62scrt.apps.googleusercontent.com',
   apiKey: 'AIzaSyCjoOADmqNWKAXbLDDTJsC4nGxOC-f4A00',
   appId: '299241992215', // номер проекта Google Cloud (нужен окну выбора файла)

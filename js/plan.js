@@ -1,5 +1,5 @@
 // План «по дням приёма» (12A + «*» из 14A), добавление блюда и ингредиента (12F), порции и варианты по персонам,
-// меню блюда, телефон (12I, 12J). Режим «по дням приготовления» — v0.3.1.
+// меню блюда, телефон (12I, 12J). Режим «по дням приготовления» (14B, 14C) — plan-cook.js.
 import * as store from './store.js';
 import { ui, actions, hooks, openLayer, closeLayer, topLayer } from './ui.js';
 import { $, $$, esc, norm, fmt, plural, showToast, ICON } from './util.js';
@@ -7,11 +7,14 @@ import { members } from './groups.js';
 import {
   SLOTS, slotOf, today, addDays, diffDays, dayParts, rangeTitle, daysBetween, fromIso, iso, persons, initial, snap, perPortion,
   entries, dayEntries, eaterValues, entryTotals, dayTotals, entryName, similar, variantLabel, diffOwn, nextOrder, defaultSlot, ingGrams, eaterRecipe,
+  cookOf, cookBlock, cookDays, cookAfterMove,
 } from './plan-model.js';
+import { cookView, cookTarget } from './plan-cook.js';
 
 const T = today();
 ui.plan = ui.plan || {
   len: 'week', from: T, to: addDays(T, 6), expanded: new Set([T]), phoneDay: T, hl: null,
+  mode: 'eat', cookFilter: null, cookExtra: 0,
   side: { q: '', slot: null, open: new Set() },
 };
 const P = ui.plan;
@@ -38,11 +41,11 @@ function shift(dir) {
 export function page() {
   const segs = [['day', 'День'], ['week', '7 дней'], ['month', 'Месяц'], ['custom', 'Свой период']]
     .map(([v, l]) => `<button data-a="pl-len" data-v="${v}" aria-pressed="${P.len === v}">${l}</button>`).join('');
-  return `<main class="page plan-page">
+  return `<main class="page plan-page${P.mode === 'cook' ? ' cook' : ''}">
     <aside class="plan-side only-wide" id="plan-side" aria-label="Рецепты для плана"></aside>
     <section class="plan-main">
       <div class="plan-top">
-        <div class="seg only-wide" role="group" aria-label="Режим плана"><button aria-pressed="true">По дням приёма</button><button disabled title="Режим «По дням приготовления» появится в версии 0.3.1">Приготовление · v0.3.1</button></div>
+        <div class="seg only-wide" role="group" aria-label="Режим плана"><button data-a="pl-mode" data-v="eat" aria-pressed="${P.mode === 'eat'}">По дням приёма</button><button data-a="pl-mode" data-v="cook" aria-pressed="${P.mode === 'cook'}">По дням приготовления</button></div>
         <div class="pnav-wrap"><div class="pnav"><button class="btn icon sm" data-a="pl-prev" aria-label="Раньше">‹</button><h1 id="pl-title"></h1><button class="btn icon sm" data-a="pl-next" aria-label="Позже">›</button>
           <button class="link" data-a="pl-today">сегодня</button></div>
         <div class="seg only-wide" role="group" aria-label="Период">${segs}</div></div>
@@ -52,12 +55,22 @@ export function page() {
   </main>`;
 }
 
-export function refreshSide() { const side = $('#plan-side'); if (side) side.innerHTML = sideView(); }
+// перерисовка списка рецептов с сохранением прокрутки (баг: при раскрытии группы список прыгал наверх)
+export function refreshSide() {
+  const side = $('#plan-side'); if (!side) return;
+  const old = $('#ps-list'); const top = old ? old.scrollTop : 0;
+  const fa = document.activeElement && side.contains(document.activeElement) ? document.activeElement.dataset : null;
+  side.innerHTML = sideView();
+  const list = $('#ps-list'); if (list) list.scrollTop = top;
+  if (fa && fa.a) { const sel = `[data-a="${fa.a}"]` + (fa.id ? `[data-id="${CSS.escape(fa.id)}"]` : '') + (fa.v ? `[data-v="${CSS.escape(fa.v)}"]` : ''); const b = side.querySelector(sel); if (b) b.focus({ preventScroll: true }); }
+}
 export function refresh() {
   if (!$('#plan-body')) return;
   $('#pl-title').textContent = rangeTitle(P.from, P.to);
   $$('[data-a="pl-len"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === P.len)));
-  const side = $('#plan-side'); if (side) side.innerHTML = sideView();
+  $$('[data-a="pl-mode"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === P.mode)));
+  const pg = $('.plan-page'); if (pg) pg.classList.toggle('cook', P.mode === 'cook');
+  refreshSide();
   $('#plan-body').innerHTML = bodyView();
 }
 
@@ -78,7 +91,7 @@ function sideItems() {
 function sideView() {
   const chips = SLOTS.map((s) => `<button class="chip meal" style="--c:${slotVar(s.id)}" data-a="pl-side-slot" data-v="${s.id}" aria-pressed="${P.side.slot === s.id}">${s.name}</button>`).join('');
   const kcal = (r) => fmt(perPortion(snap(r)).kcal);
-  const items = sideItems().slice(0, 80).map((x) => {
+  const items = sideItems().map((x) => {
     if (x.r) return `<button class="ps-item" data-a="pl-side-pick" data-rid="${esc(x.r.id)}" data-drag-rid="${esc(x.r.id)}">${ICON.grip}<span class="nm">${esc(x.r.name)}</span><b>${kcal(x.r)}</b></button>`;
     const open = P.side.open.has(x.g.id) || !!P.side.q;
     return `<div class="ps-group${open ? ' open' : ''}" data-gid="${esc(x.g.id)}">
@@ -100,7 +113,8 @@ function bodyView() {
   const all = entries();
   const simMap = new Map(all.filter((e) => e.kind === 'dish').map((e) => [e.id, similar(e, all)]));
   const head = `<div class="pt-head"><span>день</span><span>блюдо</span>${ps.map((p) => `<span class="pt-ph">${ava(p)}<b>${esc(p.name)}</b><small>${goalText(p)}</small></span>`).join('')}<span>итого</span></div>`;
-  const desk = `<div class="plan-scroll only-wide"><div class="pt" style="--np:${ps.length}">${head}${days.map((d) => dayView(d, ps, simMap)).join('')}</div>${summaryView(ps, days)}</div>`;
+  const desk = P.mode === 'cook' ? `<div class="only-wide">${cookView()}</div>`
+    : `<div class="plan-scroll only-wide"><div class="pt" style="--np:${ps.length}">${head}${days.map((d) => dayView(d, ps, simMap)).join('')}</div>${summaryView(ps, days)}</div>`;
   return desk + phoneView(ps, days, simMap);
 }
 const goalText = (p) => { const g = p.goals || {}; return g.kcal ? `${fmt(g.kcal)} · ${fmt(g.p || 0)}/${fmt(g.f || 0)}/${fmt(g.c || 0)}` : 'цель не задана'; };
@@ -142,13 +156,15 @@ function personTotal(p, t) {
 
 function dishCell(e, simMap) {
   const sim = simMap.get(e.id) || [];
-  const sub = e.kind === 'ing' ? 'ингредиент без рецепта' : (e.groupId ? 'группа · ' + Object.keys(e.recipes).length + ' вар. в приёме' : '');
+  const sub = [e.kind === 'ing' ? 'ингредиент без рецепта' : (e.groupId ? 'группа · ' + Object.keys(e.recipes).length + ' вар. в приёме' : ''), cookNote(e)].filter(Boolean).join(' · ');
   return `<div class="pt-dish${e.kind === 'ing' ? ' ing' : ''}" style="--c:${slotVar(e.slot)}">
     <button class="grip rowgrip" data-rowgrip="${esc(e.id)}" aria-label="Переместить внутри приёма: перетащите или стрелки вверх и вниз">${ICON.grip}</button>
     <button class="pt-dn" data-a="pl-dish" data-e="${esc(e.id)}"><small>${slotOf(e.slot).name}</small><b>${esc(entryName(e))}</b>${sub ? `<small>${sub}</small>` : ''}</button>
     ${sim.length ? `<button class="star" data-star="${esc(e.id)}" data-a="pl-star" data-e="${esc(e.id)}" aria-label="Похожие блюда рядом: ${sim.length}" title="Похожие блюда рядом (±5 дней)">${STAR}</button>` : ''}
   </div>`;
 }
+
+const cookNote = (e) => (e.kind === 'dish' && cookOf(e) !== e.date ? `готовится ${dayParts(cookOf(e)).dow} ${dayParts(cookOf(e)).d}` : '');
 
 function stepInfo(e) {
   if (e.kind === 'dish') return { step: 0.5, min: 0.5, unit: '' };
@@ -207,7 +223,7 @@ function phoneView(ps, days, simMap) {
         <button class="btn icon sm" data-a="pl-eater-rm" data-e="${esc(e.id)}" data-p="${esc(p.id)}" aria-label="Убрать ${esc(p.name)}">×</button></div>`;
     }).join('');
     const missing = ps.filter((p) => !(e.eaters && e.eaters[p.id]));
-    return `<div class="pp-card" data-e="${esc(e.id)}"><div class="pp-ch${e.kind === 'ing' ? ' ing' : ''}" style="--c:${slotVar(e.slot)}"><button class="pp-cn" data-a="pl-dish" data-e="${esc(e.id)}"><small>${slotOf(e.slot).name}</small><b>${esc(entryName(e))}</b></button>
+    return `<div class="pp-card" data-e="${esc(e.id)}"><div class="pp-ch${e.kind === 'ing' ? ' ing' : ''}" style="--c:${slotVar(e.slot)}"><button class="pp-cn" data-a="pl-dish" data-e="${esc(e.id)}"><small>${slotOf(e.slot).name}${cookNote(e) ? ' · ' + cookNote(e) : ''}</small><b>${esc(entryName(e))}</b></button>
       ${sim.length ? `<span class="star" data-star="${esc(e.id)}" title="Похожие блюда рядом">${STAR}</span>` : ''}<span class="pp-ct">${fmt(t.kcal)}</span></div>
       <div class="pp-rows">${rows}${missing.length ? `<div class="pp-miss">${missing.map((p) => `<button class="btn sm ghost" data-a="pl-eater-add" data-e="${esc(e.id)}" data-p="${esc(p.id)}">+ ${esc(p.name)}</button>`).join('')}</div>` : ''}</div></div>`;
   }).join('');
@@ -250,10 +266,26 @@ actions['pl-eater-add'] = async (t) => {
 };
 actions['pl-eater'] = (t) => openLayer({ type: 'dialog', kind: 'pl-eater', e: t.dataset.e, p: t.dataset.p });
 actions['pl-dish'] = (t) => openLayer({ type: 'dialog', kind: 'pl-dish', e: t.dataset.e, date: (getE(t.dataset.e) || {}).date });
-actions['pl-star'] = (t) => { P.hl = P.hl === t.dataset.e ? null : t.dataset.e; highlight(P.hl); };
+// клик по «*» в режиме приёма — режим приготовления с фильтром по этому блюду (Q-65); наведение — подсветка
+actions['pl-star'] = (t) => { P.hl = null; P.mode = 'cook'; P.cookFilter = t.dataset.e; refresh(); window.scrollTo(0, 0); };
+actions['pl-mode'] = (t) => { if (P.mode === t.dataset.v) return; P.mode = t.dataset.v; P.cookFilter = null; P.hl = null; refresh(); };
+actions['ck-filter'] = (t) => { P.cookFilter = P.cookFilter === t.dataset.e ? null : t.dataset.e; refresh(); };
+actions['ck-filter-off'] = () => { P.cookFilter = null; refresh(); };
+actions['ck-earlier'] = () => { P.cookExtra = Math.min(5, (P.cookExtra || 0) + 1); refresh(); };
+actions['pl-card'] = (t) => openLayer({ type: 'dialog', kind: 'pl-dish', e: t.dataset.e, date: (getE(t.dataset.e) || {}).date, full: true });
+/** Сменить день приготовления блюда (перетаскивание, стрелки, окно блюда). */
+export async function setCook(id, c) {
+  const e = getE(id); if (!e || e.kind !== 'dish') return false;
+  const t = cookTarget(e, c);
+  if (!t.ok) { showToast(`«${entryName(e)}»: ${t.label}`); return false; }
+  if (cookOf(e) === c) return true;
+  await putE({ ...e, cookDate: c });
+  showToast(`«${entryName(e)}»: готовить ${t.label}`);
+  return true;
+}
 actions['pl-add'] = (t) => openAdd({ date: t.dataset.date, tab: t.dataset.tab || 'dish' });
-actions['pl-side-slot'] = (t) => { P.side.slot = P.side.slot === t.dataset.v ? null : t.dataset.v; $('#plan-side').innerHTML = sideView(); };
-actions['pl-side-group'] = (t) => { const id = t.dataset.id; if (P.side.open.has(id)) P.side.open.delete(id); else P.side.open.add(id); $('#plan-side').innerHTML = sideView(); };
+actions['pl-side-slot'] = (t) => { P.side.slot = P.side.slot === t.dataset.v ? null : t.dataset.v; refreshSide(); };
+actions['pl-side-group'] = (t) => { const id = t.dataset.id; if (P.side.open.has(id)) P.side.open.delete(id); else P.side.open.add(id); refreshSide(); };
 actions['pl-side-pick'] = (t) => {
   const d = [...P.expanded].filter((x) => x >= P.from && x <= P.to).sort()[0] || (T >= P.from && T <= P.to ? T : P.from);
   openAdd({ date: d, rid: t.dataset.rid });
@@ -264,7 +296,7 @@ export function highlight(id) {
   $$('.hl').forEach((x) => x.classList.remove('hl'));
   if (!id) return;
   const e = getE(id); if (!e) return;
-  for (const o of [e, ...similar(e)]) $$(`[data-e="${CSS.escape(o.id)}"]`).forEach((x) => { if (x.matches('.pt-row, .pchip, .pp-card')) x.classList.add('hl'); });
+  for (const o of [e, ...similar(e)]) $$(`[data-e="${CSS.escape(o.id)}"]`).forEach((x) => { if (x.matches('.pt-row, .pchip, .pp-card, .ck-card')) x.classList.add('hl'); });
 }
 document.addEventListener('mouseover', (ev) => {
   const s = ev.target.closest && ev.target.closest('[data-star]');
@@ -303,7 +335,7 @@ const slotChosen = (l) => l._slotTouched;
 function addList(l) {
   const q = norm(l.q).trim();
   if (l.tab === 'ing') {
-    const list = store.list('ingredients').filter((x) => !q || norm(x.name).includes(q)).sort((a, b) => a.name.localeCompare(b.name, 'ru')).slice(0, 60);
+    const list = store.list('ingredients').filter((x) => !q || norm(x.name).includes(q)).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
     return list.map((x) => `<button class="pa-item${l.pick && l.pick.ing === x.id ? ' on' : ''}" data-a="pa-pick" data-ing="${esc(x.id)}"><b>${esc(x.name)}</b><small>${fmt(x.kcal * 100)} ккал / 100 г${x.unitWeight ? ' · 1 ' + esc(x.unitName || 'шт') + ' = ' + fmt(x.unitWeight) + ' г' : ''}</small></button>`).join('') || '<p class="hint">Ничего не нашлось</p>';
   }
   const tag = slotOf(l.slot).tag;
@@ -312,7 +344,7 @@ function addList(l) {
   for (const g of store.list('groups')) { const m = members(g.id); if (m.some(ok) || (q && norm(g.name).includes(q))) items.push({ g, m, fit: m.some((r) => (r.tags || []).includes(tag)) }); }
   for (const r of store.list('recipes')) if ((!r.groupId || !store.get('groups', r.groupId)) && ok(r)) items.push({ r, fit: (r.tags || []).includes(tag) });
   items.sort((a, b) => (b.fit - a.fit) || (a.g ? a.g.name : a.r.name).localeCompare(b.g ? b.g.name : b.r.name, 'ru'));
-  return items.slice(0, 60).map((x) => {
+  return items.map((x) => {
     if (x.g) {
       const on = l.pick && l.pick.gid === x.g.id;
       return `<button class="pa-item${on ? ' on' : ''}" data-a="pa-pick" data-gid="${esc(x.g.id)}"><b>${esc(x.g.name)} <span class="chip-s dark">группа · ${x.m.length}</span></b><small>${x.m.map((r) => esc(r.name)).join(' · ')}</small></button>`;
@@ -451,8 +483,19 @@ actions['pe-save'] = () => { const l = topLayer(); const e = getE(l.e); openLaye
 function dishMenuView(l) {
   const e = getE(l.e); if (!e) return '';
   const base = e.kind === 'dish' ? store.get('recipes', e.main) : null;
+  // из режима приготовления окно показывает и порции по персонам, и день приготовления (Q-64)
+  let people = '', cook = '';
+  if (l.full) {
+    const ps = persons();
+    people = `<div class="pd-people">${ps.filter((p) => e.eaters && e.eaters[p.id]).map((p) => {
+      const x = e.eaters[p.id]; const v = eaterValues(e, p.id); const lab = variantLabel(e, p.id);
+      return `<div class="pp-row"><button class="pp-who" data-a="pl-eater" data-e="${esc(e.id)}" data-p="${esc(p.id)}">${ava(p)}<span><b>${esc(p.name)}</b><small>${fmt(v.kcal)} ккал${lab ? ' · ' + esc(lab) : ''}</small></span></button>${stepper(e, p.id, x.n)}</div>`;
+    }).join('')}${ps.filter((p) => !(e.eaters && e.eaters[p.id])).map((p) => `<button class="btn sm ghost" data-a="pl-eater-add" data-e="${esc(e.id)}" data-p="${esc(p.id)}">+ ${esc(p.name)}</button>`).join('')}</div>`;
+    if (e.kind === 'dish') cook = `<div class="pd-cook"><b>Готовить</b><div class="chips-w">${cookDays(e).map((c) => { const x = dayParts(c); return `<button class="chip" data-a="pd-cook" data-v="${c}" aria-pressed="${cookOf(e) === c}">${x.dow} ${x.d}${c === e.date ? ' · в день приёма' : ''}</button>`; }).join('')}</div></div>`;
+  }
   return `<section class="dialog small" role="dialog" aria-modal="true" aria-labelledby="pd-title"><div class="dlg-body">
-    <h2 id="pd-title">${esc(entryName(e))}</h2><span class="hint">${dayParts(e.date).dow}, ${dayParts(e.date).d} ${dayParts(e.date).monf} · ${slotOf(e.slot).name}</span>
+    <h2 id="pd-title">${esc(entryName(e))}</h2><span class="hint">${dayParts(e.date).dow}, ${dayParts(e.date).d} ${dayParts(e.date).monf} · ${slotOf(e.slot).name}${cookNote(e) ? ' · ' + cookNote(e) : ''}</span>
+    ${people}${cook}
     <div class="pa-slots" role="group" aria-label="Приём">${SLOTS.map((s) => `<button class="chip meal" style="--c:${slotVar(s.id)}" data-a="pd-slot" data-v="${s.id}" aria-pressed="${e.slot === s.id}">${s.name}</button>`).join('')}</div>
     <div class="pd-move"><label class="field"><span>Перенести на день</span><input type="date" id="pd-date" value="${l.date}"></label><button class="btn" data-a="pd-move">Перенести</button></div>
     <div class="menu-list">${base ? `<button data-a="pd-open">Открыть рецепт «${esc(base.name)}»</button>` : ''}
@@ -462,9 +505,13 @@ function dishMenuView(l) {
 actions['pd-slot'] = async (t) => { const l = topLayer(); const e = getE(l.e); if (e.slot === t.dataset.v) return; await putE({ ...e, slot: t.dataset.v, order: nextOrder(e.date, t.dataset.v) }); hooks.renderOverlay(); };
 actions['pd-move'] = async () => {
   const l = topLayer(); const e = getE(l.e); const d = $('#pd-date').value; if (!d || d === e.date) return;
-  await putE({ ...e, date: d, cookDate: d, order: nextOrder(d, e.slot) });
-  closeLayer(); P.expanded.add(d); showToast(`«${entryName(e)}» перенесено на ${dayParts(d).dow} ${dayParts(d).d}`);
+  // день приготовления: следует за блюдом, остаётся или возвращается в день приёма (Q-67)
+  const c = e.kind === 'dish' ? cookAfterMove(e, d) : { cookDate: d, reset: false };
+  await putE({ ...e, date: d, cookDate: c.cookDate, order: nextOrder(d, e.slot) });
+  closeLayer(); P.expanded.add(d);
+  showToast(`«${entryName(e)}» перенесено на ${dayParts(d).dow} ${dayParts(d).d}` + (c.reset ? '. Готовка тоже перенесена на этот день: прежний день приготовления не подходит' : ''));
 };
+actions['pd-cook'] = async (t) => { const l = topLayer(); await setCook(l.e, t.dataset.v); const b = $(`[data-a="pd-cook"][data-v="${t.dataset.v}"]`); if (b) b.focus(); };
 actions['pd-open'] = () => { const l = topLayer(); const e = getE(l.e); closeLayer(); openLayer({ type: 'recipe', id: e.main, mode: 'view' }); };
 actions['pd-del'] = async () => { const l = topLayer(); const e = getE(l.e); await store.remove('plan', e.id); closeLayer(); showToast(`«${entryName(e)}» удалено из плана`); };
 
@@ -549,8 +596,15 @@ export function onInput(e) {
   return false;
 }
 export function onKeydown(e) {
+  const ck = e.target.dataset && e.target.dataset.ckkey;
+  if (ck && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    e.preventDefault();
+    const x = getE(ck); if (!x) return true;
+    setCook(ck, addDays(cookOf(x), e.key === 'ArrowLeft' ? -1 : 1)).then(() => { const b = $(`[data-ckkey="${CSS.escape(ck)}"]`); if (b) b.focus(); });
+    return true;
+  }
   if (e.target.id === 'pa-q' && e.key === 'Enter') { e.preventDefault(); const f = $('#pa-list .pa-item'); if (f) f.click(); return true; }
   return false;
 }
 export { stepInfo, getE, putE, P as planState, setLen };
-export const _unused = { iso, eaterRecipe, ingGrams };
+export const _unused = { iso, eaterRecipe, ingGrams, cookBlock };

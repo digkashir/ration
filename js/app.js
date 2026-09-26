@@ -326,7 +326,7 @@ store.init().then(() => {
 });
 
 // ---------------- подсказка с полным названием, если оно обрезано ----------------
-const TIP_SEL = '.nm, .g-name, .pt-dn b, .pa-item small, .pp-cn b, .pp-who b';
+const TIP_SEL = '.ck-open b, .ck-open small, .nm, .g-name, .pt-dn b, .pa-item small, .pp-cn b, .pp-who b';
 let tipEl = null;
 function hideTip() { if (tipEl) { tipEl.remove(); tipEl = null; } }
 document.addEventListener('mouseover', (e) => {

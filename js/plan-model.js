@@ -156,3 +156,41 @@ export function defaultSlot(recipe) {
   for (const s of SLOTS) if ((recipe.tags || []).includes(s.tag)) return s.id;
   return 'lunch';
 }
+
+// ---------- дни приготовления (3.4 п. 9, Q-61…Q-63, Q-67…Q-69) ----------
+export const COOK_AHEAD = 5;
+/** День приготовления записи; по умолчанию — день приёма. */
+export const cookOf = (e) => e.cookDate || e.date;
+/** Почему нельзя готовить в день c (или '' — можно). */
+export function cookBlock(e, c) {
+  if (c > e.date) return 'позже дня приёма';
+  if (diffDays(e.date, c) > COOK_AHEAD) return `раньше чем за ${COOK_AHEAD} дней`;
+  return '';
+}
+/** Допустимые дни приготовления записи: от «за 5 дней» до дня приёма. */
+export const cookDays = (e) => daysBetween(addDays(e.date, -COOK_AHEAD), e.date);
+/** Похожи ли два блюда (тот же рецепт или та же группа), без учёта дат. */
+export function alike(a, b) {
+  if (a.kind !== 'dish' || b.kind !== 'dish') return false;
+  if (a.groupId && a.groupId === b.groupId) return true;
+  const r = new Set(Object.keys(a.recipes || {}));
+  return Object.keys(b.recipes || {}).some((x) => r.has(x));
+}
+/** Готовки дня c: похожие блюда с одним днём приготовления — одна готовка (Q-61). */
+export function cookings(c, all = entries()) {
+  const list = all.filter((e) => e.kind === 'dish' && cookOf(e) === c)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : slotIdx(a.slot) - slotIdx(b.slot) || (a.order ?? 0) - (b.order ?? 0)));
+  const out = [];
+  for (const e of list) {
+    const g = out.find((x) => x.some((o) => alike(o, e)));
+    if (g) g.push(e); else out.push([e]);
+  }
+  return out;
+}
+/** День приготовления после переноса блюда на другой день приёма (Q-67). */
+export function cookAfterMove(e, date) {
+  const c = cookOf(e);
+  if (c === e.date) return { cookDate: date, reset: false };
+  if (!cookBlock({ date }, c)) return { cookDate: c, reset: false };
+  return { cookDate: date, reset: true };
+}

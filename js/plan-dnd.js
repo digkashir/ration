@@ -1,17 +1,28 @@
 // Перетаскивание в плане: рецепт из боковой базы → в день (добавить) или в ячейку персоны (сменить вариант, Q-56);
-// строка блюда за ⋮⋮ → новый порядок внутри своего приёма (Q-48).
+// строка блюда за ⋮⋮ → новый порядок внутри своего приёма (Q-48);
+// режим «по дням приготовления»: карточка блюда → другой столбец своей строки (день приготовления, 14B, Q-68, Q-69).
 import * as store from './store.js';
 import { ui, openLayer } from './ui.js';
 import { members, addToGroup, promptLeft, setOrder } from './groups.js';
 import { $$, showToast } from './util.js';
 import { snap, entryName, dayEntries } from './plan-model.js';
-import { openAdd, refresh, refreshSide, planState } from './plan.js';
+import { openAdd, refresh, refreshSide, planState, setCook } from './plan.js';
+import { cookTarget } from './plan-cook.js';
 
 let st = null;
 export const isDragging = () => !!(st && st.dragging);
 
 document.addEventListener('pointerdown', (e) => {
   if (st || ui.layers.length || e.button > 0) return;
+  const card = e.target.closest && !e.target.closest('.star') && e.target.closest('[data-ck]');
+  if (card) {
+    if (e.pointerType !== 'mouse' && e.pointerType !== 'pen') return;
+    st = { kind: 'cook', el: card, eid: card.dataset.ck, x0: e.clientX, y0: e.clientY, dragging: false, target: null, pid: e.pointerId };
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', cleanup);
+    return;
+  }
   const src = e.target.closest && e.target.closest('[data-drag-rid], [data-drag-gid]');
   const grip = e.target.closest && e.target.closest('[data-rowgrip]');
   if (!src && !grip) return;
@@ -26,12 +37,12 @@ document.addEventListener('pointerdown', (e) => {
 
 function begin() {
   st.dragging = true;
-  if (st.kind === 'recipe') {
+  if (st.kind === 'recipe' || st.kind === 'cook') {
     const g = st.el.cloneNode(true); g.classList.add('drag-ghost', 'ps-ghost'); g.removeAttribute('data-a');
     g.style.width = st.el.getBoundingClientRect().width + 'px';
     document.body.appendChild(g); st.ghost = g;
   } else st.el.classList.add('dragging');
-  if (st.kind === 'recipe' && st.rid) st.el.classList.add('drag-src');
+  if ((st.kind === 'recipe' && st.rid) || st.kind === 'cook') st.el.classList.add('drag-src');
   document.body.classList.add('dragging-rec');
 }
 
@@ -41,6 +52,16 @@ function onMove(e) {
   if (!st.dragging) { if (dist < 6) return; begin(); }
   e.preventDefault();
   if (st.ghost) { st.ghost.style.left = e.clientX + 8 + 'px'; st.ghost.style.top = e.clientY + 8 + 'px'; }
+  if (st.kind === 'cook') {
+    // столбец выбирается по горизонтали — строку держать точно не нужно
+    const cells = $$(`.ck-cell[data-cr="${CSS.escape(st.eid)}"]`);
+    const cell = cells.find((c) => { const r = c.getBoundingClientRect(); return e.clientX >= r.left - 2 && e.clientX <= r.right + 2; });
+    const en = store.get('plan', st.eid);
+    if (!cell || !en) { setTarget(null); return; }
+    const t = cookTarget(en, cell.dataset.cc);
+    setTarget({ kind: 'cook', el: cell, date: cell.dataset.cc, ok: t.ok, label: t.label });
+    return;
+  }
   const el = document.elementFromPoint(e.clientX, e.clientY);
   if (st.kind === 'row') {
     const over = el && el.closest('.pt-row');
@@ -111,6 +132,7 @@ async function onUp(e) {
     return;
   }
   const t = s.target;
+  if (s.kind === 'cook') { if (t && t.ok) await setCook(s.eid, t.date); else if (t) showToast(t.label.replace(/^нельзя — /, 'Здесь готовить нельзя: ')); return; }
   if (!t || !t.ok) { if (s.moved) refreshSide(); return; }
   if (t.kind === 'side-recipe') {
     const target = store.get('recipes', t.id); refreshSide();

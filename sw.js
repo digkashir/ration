@@ -1,12 +1,12 @@
 // Service worker «Рациона»: кэширует интерфейс, чтобы приложение открывалось без сети.
 // Данные хранятся отдельно (IndexedDB) и сюда не попадают.
-const VERSION = 'ration-v0.3.2';
+const VERSION = 'ration-v0.3.3';
 const SHELL = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
   'js/app.js', 'js/store.js', 'js/drive.js', 'js/sync.js', 'js/db.js', 'js/config.js',
   'js/util.js', 'js/ui.js', 'js/nutrition.js', 'js/migrate.js',
   'js/ingredients.js', 'js/groups.js', 'js/recipes.js', 'js/recipe.js', 'js/recipe-dnd.js',
-  'js/plan-model.js', 'js/plan.js', 'js/plan-dnd.js', 'js/persons.js', 'js/tags.js',
+  'js/plan-model.js', 'js/plan.js', 'js/plan-dnd.js', 'js/plan-cook.js', 'js/persons.js', 'js/tags.js',
   'data/seed.json', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 
