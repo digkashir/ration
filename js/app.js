@@ -1,5 +1,6 @@
 // «Рацион.» v0.2 — каркас приложения: вход, разделы, слои поверх страницы, события.
 import * as store from './store.js';
+import * as drive from './drive.js';
 import { CONFIG } from './config.js';
 import { ui, actions, hooks, closeLayer, closeAll, topLayer } from './ui.js';
 import { $, $$, esc, showToast, ICON } from './util.js';
@@ -321,9 +322,14 @@ if ('serviceWorker' in navigator) {
   });
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW', e)));
 }
+// возвращение со страницы входа Google (вход переадресацией на iPhone/iPad)
+const authBack = drive.takeRedirect();
 store.init().then(() => {
   render();
-  store.sync();
+  if (authBack && authBack.error) showToast(authBack.error, 'error', 8000);
+  else if (authBack && authBack.then === 'connect') actions.connect();
+  else if (authBack && authBack.then === 'sync') withBusy(() => store.signInAgain());
+  else store.sync();
 }).catch((e) => {
   console.error(e);
   $('#app').innerHTML = `<div class="welcome"><div class="card"><h1>рацион<i>.</i></h1><p>Не удалось запустить приложение: ${esc(e.message)}</p></div></div>`;

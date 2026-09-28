@@ -7,18 +7,69 @@ export class AuthError extends Error {
 }
 
 const TOKEN_KEY = 'ration.token';
+const PENDING_KEY = 'ration.auth.pending';
 let token = null;
 let tokenExp = 0;
 
+// Токен живёт час. Храним его в localStorage: на iPhone приложение с экрана «Домой» теряет sessionStorage
+// при каждом закрытии, и пришлось бы входить заново.
+const ls = { get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* */ } },
+  del: (k) => { try { localStorage.removeItem(k); } catch (e) { /* */ } } };
 (function restore() {
   try {
-    const s = JSON.parse(sessionStorage.getItem(TOKEN_KEY) || 'null');
+    const s = JSON.parse(ls.get(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || 'null');
     if (s && s.exp > Date.now()) { token = s.token; tokenExp = s.exp; }
-  } catch (e) { /* нет sessionStorage — не страшно */ }
+  } catch (e) { /* нет хранилища — не страшно */ }
 })();
 
-function saveToken() {
-  try { sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token, exp: tokenExp })); } catch (e) { /* */ }
+function saveToken() { ls.set(TOKEN_KEY, JSON.stringify({ token, exp: tokenExp })); }
+
+/**
+ * Вход переадресацией (вся страница уходит на Google и возвращается с токеном).
+ * Нужен на iPhone и iPad: всплывающее окно входа там закрывается, не передав токен («popup window closed»).
+ */
+export function useRedirect() {
+  if (ls.get('ration.auth.mode') === 'redirect') return true;
+  if (ls.get('ration.auth.mode') === 'popup') return false;
+  const ua = navigator.userAgent || '';
+  const ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  return ios || window.navigator.standalone === true;
+}
+export const redirectUri = () => CONFIG.redirectUri || (location.origin + location.pathname.replace(/index\.html$/, ''));
+
+function redirectSignIn({ hint, consent, then }) {
+  const st = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  ls.set(PENDING_KEY, JSON.stringify({ state: st, then: then || '', route: location.hash || '', at: Date.now() }));
+  const q = new URLSearchParams({
+    client_id: CONFIG.clientId, redirect_uri: redirectUri(), response_type: 'token', scope: CONFIG.scope,
+    include_granted_scopes: 'true', state: st,
+  });
+  if (consent) q.set('prompt', 'consent');
+  if (hint) q.set('login_hint', hint);
+  location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + q.toString());
+  return new Promise(() => {}); // страница уходит на Google
+}
+
+/**
+ * Вызывается при запуске: если вернулись со страницы входа Google, забрать токен из адреса.
+ * @returns {null | {then: string} | {error: string}}
+ */
+export function takeRedirect() {
+  const h = location.hash || '';
+  if (!/(^|[#&])(access_token|error)=/.test(h)) return null;
+  const p = new URLSearchParams(h.replace(/^#\/?/, ''));
+  let pending = null;
+  try { pending = JSON.parse(ls.get(PENDING_KEY) || 'null'); } catch (e) { /* */ }
+  ls.del(PENDING_KEY);
+  const back = (pending && pending.route) || '#/plan';
+  history.replaceState(null, '', location.pathname + location.search + back);
+  if (!pending || p.get('state') !== pending.state) return { error: 'Вход не завершён: ответ Google не совпал с запросом. Попробуйте ещё раз.' };
+  if (p.get('error')) return { error: p.get('error') === 'access_denied' ? 'Вход отменён.' : 'Google не выполнил вход: ' + p.get('error') };
+  token = p.get('access_token');
+  tokenExp = Date.now() + (Number(p.get('expires_in') || 3600) - 60) * 1000;
+  saveToken();
+  return { then: pending.then || '' };
 }
 
 export function hasToken() { return !!token && Date.now() < tokenExp; }
@@ -36,7 +87,9 @@ function waitFor(check, timeoutMs = 15000) {
 }
 
 /** Запросить токен. Вызывать из обработчика клика — иначе браузер может заблокировать окно входа. */
-export async function signIn({ hint = '', consent = false } = {}) {
+export async function signIn({ hint = '', consent = false, then = '' } = {}) {
+  if (hasToken() && !consent) return token;
+  if (useRedirect()) return redirectSignIn({ hint, consent, then });
   await waitFor(() => window.google && window.google.accounts && window.google.accounts.oauth2);
   return new Promise((resolve, reject) => {
     const client = window.google.accounts.oauth2.initTokenClient({
@@ -49,7 +102,11 @@ export async function signIn({ hint = '', consent = false } = {}) {
         saveToken();
         resolve(token);
       },
-      error_callback: (e) => reject(new AuthError(e && e.message ? e.message : 'Вход отменён')),
+      error_callback: (e) => {
+        // окно не открылось (блокировщик, встроенный браузер) — входим переадресацией
+        if (e && e.type === 'popup_failed_to_open') { redirectSignIn({ hint, consent, then }); return; }
+        reject(new AuthError(e && e.type === 'popup_closed' ? 'Окно входа закрылось до конца входа. Попробуйте ещё раз.' : (e && e.message ? e.message : 'Вход отменён')));
+      },
     });
     client.requestAccessToken({ prompt: consent ? 'consent' : '', login_hint: hint || undefined });
   });
@@ -60,13 +117,14 @@ export function signOut() {
     try { window.google.accounts.oauth2.revoke(token, () => {}); } catch (e) { /* */ }
   }
   token = null; tokenExp = 0;
+  ls.del(TOKEN_KEY);
   try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) { /* */ }
 }
 
 async function api(url, opts = {}) {
   if (!hasToken()) throw new AuthError();
   const res = await fetch(url, { ...opts, headers: { Authorization: 'Bearer ' + token, ...(opts.headers || {}) } });
-  if (res.status === 401) { token = null; tokenExp = 0; throw new AuthError(); }
+  if (res.status === 401) { token = null; tokenExp = 0; ls.del(TOKEN_KEY); throw new AuthError(); }
   if (!res.ok) {
     const text = await res.text();
     throw new Error('Google Диск ответил ошибкой ' + res.status + ': ' + text.slice(0, 300));

@@ -195,7 +195,7 @@ async function doSync() {
  */
 export async function connect() {
   const hint = state.meta && state.meta.user ? state.meta.user.email : '';
-  await drive.signIn({ hint });
+  await drive.signIn({ hint, then: 'connect' });
   const user = await drive.about();
   if (!state.meta) state.meta = { mode: 'local', dirty: [] };
   state.meta.user = { name: user.displayName, email: user.emailAddress };
@@ -252,7 +252,7 @@ export async function joinShared() {
 
 export async function signInAgain() {
   const hint = state.meta && state.meta.user ? state.meta.user.email : '';
-  await drive.signIn({ hint });
+  await drive.signIn({ hint, then: 'sync' });
   await sync();
 }
 
