@@ -811,3 +811,6 @@ ol.steps li::before { content: counter(st); width: 26px; height: 26px; border-ra
   .sh-export { width: 100%; }
   .sh-cols { columns: 1; }
 }
+.ios-join { text-align: left; gap: 10px; }
+.ios-join .fine { margin: 0; }
+.ios-join .link { align-self: flex-start; }

@@ -10,6 +10,14 @@ const TOKEN_KEY = 'ration.token';
 const PENDING_KEY = 'ration.auth.pending';
 let token = null;
 let tokenExp = 0;
+let tokenScope = '';
+/** Полный доступ к Диску — только для подключения общей базы с телефона (окно выбора файла там не работает). */
+export const WIDE = 'https://www.googleapis.com/auth/drive';
+const WIDE_KEY = 'ration.auth.wide';
+export const wideWanted = () => ls.get(WIDE_KEY) === '1';
+export const forgetWide = () => ls.del(WIDE_KEY);
+export const hasWide = () => hasToken() && tokenScope.split(' ').includes(WIDE);
+const scopes = (wide) => CONFIG.scope + (wide || wideWanted() ? ' ' + WIDE : '');
 
 // Токен живёт час. Храним его в localStorage: на iPhone приложение с экрана «Домой» теряет sessionStorage
 // при каждом закрытии, и пришлось бы входить заново.
@@ -19,11 +27,11 @@ const ls = { get: (k) => { try { return localStorage.getItem(k); } catch (e) { r
 (function restore() {
   try {
     const s = JSON.parse(ls.get(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || 'null');
-    if (s && s.exp > Date.now()) { token = s.token; tokenExp = s.exp; }
+    if (s && s.exp > Date.now()) { token = s.token; tokenExp = s.exp; tokenScope = s.scope || ''; }
   } catch (e) { /* нет хранилища — не страшно */ }
 })();
 
-function saveToken() { ls.set(TOKEN_KEY, JSON.stringify({ token, exp: tokenExp })); }
+function saveToken() { ls.set(TOKEN_KEY, JSON.stringify({ token, exp: tokenExp, scope: tokenScope })); }
 
 /**
  * Вход переадресацией (вся страница уходит на Google и возвращается с токеном).
@@ -38,11 +46,11 @@ export function useRedirect() {
 }
 export const redirectUri = () => CONFIG.redirectUri || (location.origin + location.pathname.replace(/index\.html$/, ''));
 
-function redirectSignIn({ hint, consent, then }) {
+function redirectSignIn({ hint, consent, then, wide }) {
   const st = Math.random().toString(36).slice(2) + Date.now().toString(36);
   ls.set(PENDING_KEY, JSON.stringify({ state: st, then: then || '', route: location.hash || '', at: Date.now() }));
   const q = new URLSearchParams({
-    client_id: CONFIG.clientId, redirect_uri: redirectUri(), response_type: 'token', scope: CONFIG.scope,
+    client_id: CONFIG.clientId, redirect_uri: redirectUri(), response_type: 'token', scope: scopes(wide),
     include_granted_scopes: 'true', state: st,
   });
   if (consent) q.set('prompt', 'consent');
@@ -67,6 +75,7 @@ export function takeRedirect() {
   if (!pending || p.get('state') !== pending.state) return { error: 'Вход не завершён: ответ Google не совпал с запросом. Попробуйте ещё раз.' };
   if (p.get('error')) return { error: p.get('error') === 'access_denied' ? 'Вход отменён.' : 'Google не выполнил вход: ' + p.get('error') };
   token = p.get('access_token');
+  tokenScope = p.get('scope') || '';
   tokenExp = Date.now() + (Number(p.get('expires_in') || 3600) - 60) * 1000;
   saveToken();
   return { then: pending.then || '' };
@@ -87,24 +96,26 @@ function waitFor(check, timeoutMs = 15000) {
 }
 
 /** Запросить токен. Вызывать из обработчика клика — иначе браузер может заблокировать окно входа. */
-export async function signIn({ hint = '', consent = false, then = '' } = {}) {
-  if (hasToken() && !consent) return token;
-  if (useRedirect()) return redirectSignIn({ hint, consent, then });
+export async function signIn({ hint = '', consent = false, then = '', wide = false } = {}) {
+  if (hasToken() && !consent && (!wide || hasWide())) return token;
+  if (wide) ls.set(WIDE_KEY, '1');
+  if (useRedirect()) return redirectSignIn({ hint, consent, then, wide });
   await waitFor(() => window.google && window.google.accounts && window.google.accounts.oauth2);
   return new Promise((resolve, reject) => {
     const client = window.google.accounts.oauth2.initTokenClient({
       client_id: CONFIG.clientId,
-      scope: CONFIG.scope,
+      scope: scopes(wide),
       callback: (r) => {
         if (r.error) return reject(new AuthError(r.error_description || r.error));
         token = r.access_token;
+        tokenScope = r.scope || '';
         tokenExp = Date.now() + (Number(r.expires_in || 3600) - 60) * 1000;
         saveToken();
         resolve(token);
       },
       error_callback: (e) => {
         // окно не открылось (блокировщик, встроенный браузер) — входим переадресацией
-        if (e && e.type === 'popup_failed_to_open') { redirectSignIn({ hint, consent, then }); return; }
+        if (e && e.type === 'popup_failed_to_open') { redirectSignIn({ hint, consent, then, wide }); return; }
         reject(new AuthError(e && e.type === 'popup_closed' ? 'Окно входа закрылось до конца входа. Попробуйте ещё раз.' : (e && e.message ? e.message : 'Вход отменён')));
       },
     });
@@ -176,6 +187,14 @@ export async function createFolder() {
     body: JSON.stringify({ name: CONFIG.folderName, mimeType: 'application/vnd.google-apps.folder' }),
   });
   return r.json();
+}
+
+/** Все базы «Рациона», к которым есть доступ (свои и те, которыми поделились). Нужен полный доступ (WIDE). */
+export async function findAllDataFiles() {
+  const f = await list(`name='${esc(CONFIG.fileName)}' and mimeType='application/json' and trashed=false`,
+    'files(' + META_FIELDS + ',ownedByMe,owners(displayName,emailAddress))');
+  f.sort((a, b) => (a.ownedByMe ? 1 : 0) - (b.ownedByMe ? 1 : 0) || (b.modifiedTime || '').localeCompare(a.modifiedTime || ''));
+  return f;
 }
 
 export async function findDataFile() {

@@ -2,7 +2,7 @@
 import * as store from './store.js';
 import * as drive from './drive.js';
 import { CONFIG } from './config.js';
-import { ui, actions, hooks, closeLayer, closeAll, topLayer } from './ui.js';
+import { ui, actions, hooks, openLayer, closeLayer, closeAll, topLayer } from './ui.js';
 import { $, $$, esc, showToast, ICON } from './util.js';
 import * as ING from './ingredients.js';
 import * as GRP from './groups.js';
@@ -67,8 +67,12 @@ function setupView() {
     <div class="actions">
       <button class="btn acc lg" data-a="create" ${ui.busy ? 'disabled' : ''}>Создать новую базу</button>
       <p class="fine">Создаст папку «${esc(CONFIG.folderName)}» с файлом ${esc(CONFIG.fileName)}. В базу сразу попадут 91 ингредиент и 94 рецепта${store.state.data ? ' и все изменения, сделанные на этом устройстве' : ''}.</p>
-      <button class="btn lg" data-a="join" ${ui.busy ? 'disabled' : ''}>Подключить общую базу</button>
-      <p class="fine">Если владелец поделился с вами папкой «${esc(CONFIG.folderName)}», выберите в ней файл ${esc(CONFIG.fileName)}.</p>
+      ${drive.useRedirect() ? `<div class="panel ios-join"><b>Владелец поделился с вами базой?</b>
+        <button class="btn lg dark" data-a="join-wide" ${ui.busy ? 'disabled' : ''}>Подключить общую базу</button>
+        <p class="fine">На iPhone и iPad обычное окно выбора файла Google не работает, поэтому приложение само найдёт файл ${esc(CONFIG.fileName)}, которым с вами поделились. Для этого Google попросит разрешить доступ к файлам на Диске — <b>отметьте галочку</b> в его окне. Приложение открывает только файл базы «Рациона».</p>
+        <p class="fine">Не хотите давать такой доступ? Подключите базу один раз на компьютере этим же аккаунтом (${u ? esc(u.email) : 'тем же'}) и нажмите <button class="link" data-a="connect" ${ui.busy ? 'disabled' : ''}>проверить снова</button>.</p></div>`
+    : `<button class="btn lg" data-a="join" ${ui.busy ? 'disabled' : ''}>Подключить общую базу</button>
+      <p class="fine">Если владелец поделился с вами папкой «${esc(CONFIG.folderName)}», выберите в ней файл ${esc(CONFIG.fileName)}.</p>`}
       <button class="btn ghost" data-a="setup-later" ${ui.busy ? 'disabled' : ''}>Пока без Диска</button>
     </div>
   </div></div>`;
@@ -165,7 +169,7 @@ function layerHtml(l) {
   switch (l.type) {
     case 'ingredient': return ING.editorView(l);
     case 'recipe': return REC.view(l);
-    case 'dialog': return PLAN.dialogView(l) || SHOP.dialogView(l) || TAGS.dialogView(l) || REC.dialogView(l) || GRP.dialogView(l);
+    case 'dialog': return joinPickView(l) || PLAN.dialogView(l) || SHOP.dialogView(l) || TAGS.dialogView(l) || REC.dialogView(l) || GRP.dialogView(l);
     case 'person': return PER.editorView(l);
     case 'menu': return menuView();
     case 'filters': return RECS.filtersSheet();
@@ -233,14 +237,28 @@ actions['layer-close'] = () => {
 actions['connect'] = () => {
   closeAll();
   return withBusy(async () => {
+    const was = ui.setup;
     const res = await store.connect();
-    if (res === 'need-setup') ui.setup = true;
-    else showToast('Подключено к базе на Google Диске');
+    if (res === 'need-setup') { ui.setup = true; if (was) showToast('Общей базы пока не видно. Подключите её один раз на компьютере этим же аккаунтом и нажмите «Проверить снова».', 'info', 8000); }
+    else { ui.setup = false; showToast('Подключено к базе на Google Диске'); }
   });
 };
 actions['local'] = () => withBusy(() => store.startLocal());
 actions['create'] = () => withBusy(async () => { await store.createBase(); ui.setup = false; showToast('База создана на Google Диске в папке «' + CONFIG.folderName + '»'); });
 actions['join'] = () => withBusy(async () => { const ok = await store.joinShared(); if (ok) { ui.setup = false; showToast('Общая база подключена'); } });
+actions['join-wide'] = (t, e, resumed = false) => withBusy(async () => {
+  const r = await store.joinWide(t && t.dataset && t.dataset.id ? t.dataset.id : null, resumed);
+  if (r && r.choose) { openLayer({ type: 'dialog', kind: 'join-pick', files: r.choose }); return; }
+  closeAll(); ui.setup = false; showToast('Общая база подключена');
+});
+function joinPickView(l) {
+  if (l.kind !== 'join-pick') return '';
+  const when = (t) => { const d = t ? new Date(t) : null; return d && !isNaN(d) ? d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }) : ''; };
+  return `<section class="dialog small" role="dialog" aria-modal="true" aria-labelledby="jp-title"><div class="dlg-body">
+    <h2 id="jp-title">Какую базу подключить?</h2><p class="hint">Нашлось несколько файлов ${esc(CONFIG.fileName)}.</p>
+    <div class="menu-list">${l.files.map((f) => { const o = (f.owners || [])[0] || {}; return `<button data-a="join-wide" data-id="${esc(f.id)}"><b>${f.ownedByMe ? 'Ваша база' : 'База ' + esc(o.displayName || o.emailAddress || '')}</b><br><small class="hint">${esc(o.emailAddress || '')}${when(f.modifiedTime) ? ' · изменена ' + esc(when(f.modifiedTime)) : ''}</small></button>`; }).join('')}</div></div>
+    <div class="dlg-foot"><button class="btn" data-a="layer-close">Отмена</button></div></section>`;
+}
 actions['setup-later'] = () => withBusy(async () => { if (!store.state.data) await store.startLocal(); ui.setup = false; });
 actions['sync-chip'] = () => {
   const s = store.state.status;
@@ -329,6 +347,7 @@ store.init().then(() => {
   if (authBack && authBack.error) showToast(authBack.error, 'error', 8000);
   else if (authBack && authBack.then === 'connect') actions.connect();
   else if (authBack && authBack.then === 'sync') withBusy(() => store.signInAgain());
+  else if (authBack && authBack.then === 'join-wide') { ui.setup = true; render(); actions['join-wide'](null, null, true); }
   else store.sync();
 }).catch((e) => {
   console.error(e);

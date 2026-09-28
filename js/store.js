@@ -250,6 +250,35 @@ export async function joinShared() {
   return true;
 }
 
+/**
+ * Подключить общую базу без окна выбора файла (телефон): вход с полным доступом к Диску,
+ * поиск файлов ration-db.json, которыми поделились. Возвращает 'connected' | {choose: [файлы]}.
+ */
+export async function joinWide(fileId = null, resumed = false) {
+  const hint = state.meta && state.meta.user ? state.meta.user.email : '';
+  // resumed — только что вернулись со страницы входа Google: второй раз туда не отправляем
+  if (!(resumed && drive.hasToken())) await drive.signIn({ hint, then: 'join-wide', wide: true });
+  if (!drive.hasWide()) {
+    drive.forgetWide();
+    throw new Error('Google не дал доступ к файлам Диска. В окне Google нужно отметить галочку «Просмотр, изменение, создание и удаление всех ваших файлов на Google Диске». Попробуйте ещё раз или подключите базу один раз на компьютере.');
+  }
+  if (!state.meta) state.meta = { mode: 'local', dirty: [] };
+  if (!state.meta.user) { const u = await drive.about(); state.meta.user = { name: u.displayName, email: u.emailAddress }; }
+  const files = await drive.findAllDataFiles();
+  const shared = files.filter((f) => !f.ownedByMe);
+  let pick = fileId ? files.find((f) => f.id === fileId) : null;
+  if (!pick && !fileId) {
+    if (!files.length) throw new Error(`Не нашлось ни одной базы «Рациона». Проверьте, что владелец поделился папкой «Планировщик еды» именно с ${state.meta.user.email}, и повторите.`);
+    if (shared.length === 1) pick = shared[0];
+    else if (!shared.length && files.length === 1) pick = files[0];
+    else return { choose: files };
+  }
+  if (!pick) throw new Error('Файл базы не найден.');
+  if (!state.data) state.data = await loadSeed();
+  await attach(pick);
+  return 'connected';
+}
+
 export async function signInAgain() {
   const hint = state.meta && state.meta.user ? state.meta.user.email : '';
   await drive.signIn({ hint, then: 'sync' });
