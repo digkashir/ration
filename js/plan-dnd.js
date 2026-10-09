@@ -23,11 +23,11 @@ document.addEventListener('pointerdown', (e) => {
     window.addEventListener('pointercancel', cleanup);
     return;
   }
-  const src = e.target.closest && e.target.closest('[data-drag-rid], [data-drag-gid]');
+  const src = e.target.closest && e.target.closest('[data-drag-rid], [data-drag-gid], [data-drag-ing]');
   const grip = e.target.closest && e.target.closest('[data-rowgrip]');
   if (!src && !grip) return;
   if (src && e.pointerType !== 'mouse') return; // база рецептов есть только на компьютере
-  st = { kind: grip ? 'row' : 'recipe', el: grip ? grip.closest('.pt-row') : src, rid: src && src.dataset.dragRid, gid: src && src.dataset.dragGid,
+  st = { kind: grip ? 'row' : 'recipe', el: grip ? grip.closest('.pt-row') : src, rid: src && src.dataset.dragRid, gid: src && src.dataset.dragGid, ing: src && src.dataset.dragIng,
     eid: grip && grip.dataset.rowgrip, x0: e.clientX, y0: e.clientY, dragging: false, target: null, pid: e.pointerId };
   if (grip) e.preventDefault();
   window.addEventListener('pointermove', onMove, { passive: false });
@@ -97,7 +97,7 @@ function onMove(e) {
     setTarget(t);
     return;
   }
-  const cell = el && el.closest('[data-drop-cell]');
+  const cell = !st.ing && el && el.closest('[data-drop-cell]');
   const day = el && el.closest('[data-drop-day]');
   if (cell) {
     const [eid, pid] = cell.dataset.dropCell.split('|');
@@ -159,7 +159,7 @@ async function onUp(e) {
     refreshSide();
     return;
   }
-  if (t.kind === 'day') { openAdd({ date: t.date, rid: s.rid, gid: s.rid ? null : s.gid }); return; }
+  if (t.kind === 'day') { if (s.ing) openAdd({ date: t.date, ing: s.ing }); else openAdd({ date: t.date, rid: s.rid, gid: s.rid ? null : s.gid }); return; }
   const en = store.get('plan', t.eid); const r = store.get('recipes', s.rid);
   if (!en || !r) return;
   const recipes = { ...en.recipes }; if (!recipes[r.id]) recipes[r.id] = snap(r);

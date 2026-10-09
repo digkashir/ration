@@ -1,22 +1,27 @@
-// Страница «Покупки и гид» (15B, решения Q-70…Q-77): список покупок по отделам с флажками «куплено»
-// и ручной правкой количества («дома уже есть — докупить меньше»), готовки по дням, выгрузка в Google Таблицу.
+// Страница «Покупки и гид» (15B, Q-70…Q-77; доработки v0.5: Q-79…Q-82).
+// Вкладки «Список покупок» и «Гид», у каждой свой период (общий переключатель period.js).
+// Список — таблицей: слева флажок «куплено», ингредиент и «купить» (ручная правка: «дома уже есть — докупить меньше»),
+// справа столбец на каждую готовку с граммами; фильтр по блюдам. На телефоне левая часть закреплена, столбцы листаются.
 import * as store from './store.js';
 import { ui, actions, hooks, openLayer, closeLayer, topLayer } from './ui.js';
 import { $, $$, esc, fmt, plural, parseNum, showToast } from './util.js';
-import { dayParts, rangeTitle, slotOf, today, iso } from './plan-model.js';
-import { build, mealsText, setShop, noBuy, halfUp } from './export-model.js';
+import { dayParts, rangeTitle, slotOf, iso } from './plan-model.js';
+import { build, mealsText, setShop, noBuy, halfUp, toggleExcl } from './export-model.js';
 import { amountText } from './recipe.js';
-import { planState as P, shiftPeriod } from './plan.js';
+import * as PER from './period.js';
 import * as SHEETS from './sheets.js';
 
-ui.shop = ui.shop || { basis: 'cook', busy: false };
+ui.shop = ui.shop || { basis: 'cook', busy: false, tab: 'list', list: PER.fresh(), guide: PER.fresh() };
 const S = ui.shop;
+PER.register('shop', S.list, { persist: true, refresh: () => refresh() });
+PER.register('guide', S.guide, { persist: true, refresh: () => refresh() });
 const num = (n) => fmt(n, 1);
 const fg = (g) => fmt(g, g < 10 ? 1 : 0);
 const slotVar = (id) => `var(--s-${slotOf(id).tag.replace('meal-', '')})`;
 const dd = (d) => { const x = dayParts(d); return `${x.dow} ${x.d}`; };
+const L = () => S.list; // период списка покупок
 let model = null;
-const M = () => (model = build(P.from, P.to, S.basis));
+const M = () => { const st = S.tab === 'guide' ? S.guide : S.list; return (model = build(st.from, st.to, S.basis)); };
 
 const EXT = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
 const CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>';
@@ -24,28 +29,36 @@ const CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" strok
 export function page() {
   return `<main class="page shop-page">
     <div class="shop-top">
-      <h1>Покупки и гид</h1>
-      <div class="pnav"><button class="btn icon sm" data-a="sh-prev" aria-label="Раньше">‹</button><h2 id="sh-title"></h2><button class="btn icon sm" data-a="sh-next" aria-label="Позже">›</button>
-        <button class="link" data-a="sh-today">сегодня</button></div>
-      <div class="seg sm" role="group" aria-label="Считать по"><button data-a="sh-basis" data-v="cook">по дням приготовления</button><button data-a="sh-basis" data-v="eat">по дням приёма</button></div>
-      <span class="spacer"></span>
-      <div class="sh-export" id="sh-export"></div>
+      <div class="seg" role="tablist" aria-label="Раздел"><button role="tab" data-a="sh-tab" data-v="list" aria-selected="${S.tab === 'list'}" aria-pressed="${S.tab === 'list'}">Список покупок</button><button role="tab" data-a="sh-tab" data-v="guide" aria-selected="${S.tab === 'guide'}" aria-pressed="${S.tab === 'guide'}">Гид</button></div>
+      <div class="sh-period" id="sh-period">${PER.view(S.tab === 'guide' ? 'guide' : 'shop')}</div>
     </div>
-    <div class="shop-cols" id="shop-body"></div>
+    <div class="shop-sub"><div class="seg sm" role="group" aria-label="Считать по"><button data-a="sh-basis" data-v="cook">по дням приготовления</button><button data-a="sh-basis" data-v="eat">по дням приёма</button></div>
+      <span class="spacer"></span><div class="sh-export" id="sh-export"></div></div>
+    <div id="shop-body"></div>
   </main>`;
 }
 
 export function refresh() {
   const body = $('#shop-body'); if (!body) return;
   const m = M();
-  $('#sh-title').textContent = rangeTitle(P.from, P.to);
+  PER.sync(S.tab === 'guide' ? 'guide' : 'shop');
   $$('[data-a="sh-basis"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === S.basis)));
   $('#sh-export').innerHTML = exportView(m);
+  const wrap = $('.sh-tablewrap'); const sx = wrap ? wrap.scrollLeft : 0;
   const y = window.scrollY;
-  body.innerHTML = m.shop.length || m.cooks.length || m.hidden.length ? listView(m) + guideView(m)
-    : `<div class="empty">В этом периоде ${S.basis === 'cook' ? 'ничего не готовится' : 'нет приёмов'}. Добавьте блюда в <a href="#/plan">план</a> или выберите другой период.</div>`;
+  const empty = `<div class="empty">В этом периоде ${S.basis === 'cook' ? 'ничего не готовится' : 'нет приёмов'}. Добавьте блюда в <a href="#/plan">план</a> или выберите другой период.</div>`;
+  if (S.tab === 'guide') body.innerHTML = m.cooks.length || m.days.length ? guideView(m) : empty;
+  else body.innerHTML = m.cooks.length || m.days.length ? listView(m) : empty;
+  const w2 = $('.sh-tablewrap'); if (w2) { w2.scrollLeft = sx; w2.classList.toggle('scrolled', sx > 2); w2.addEventListener('scroll', () => w2.classList.toggle('scrolled', w2.scrollLeft > 2), { passive: true }); }
   window.scrollTo(0, y);
 }
+actions['sh-tab'] = (t) => {
+  if (S.tab === t.dataset.v) return;
+  S.tab = t.dataset.v;
+  $$('[data-a="sh-tab"]').forEach((b) => { b.setAttribute('aria-pressed', String(b.dataset.v === S.tab)); b.setAttribute('aria-selected', String(b.dataset.v === S.tab)); });
+  $('#sh-period').innerHTML = PER.view(S.tab === 'guide' ? 'guide' : 'shop');
+  refresh();
+};
 
 // ---------- выгрузка ----------
 function exportView(m) {
@@ -56,13 +69,13 @@ function exportView(m) {
   const off = !drv ? 'Подключите Google Диск в меню аккаунта — таблица создаётся на нём' : !navigator.onLine ? 'Нет интернета' : '';
   return `${whenTxt ? `<span class="hint">${whenTxt}</span>` : ''}
     ${set && set.link ? `<a class="btn" href="${esc(set.link)}" target="_blank" rel="noopener">Открыть таблицу ${EXT}</a>` : ''}
-    <button class="btn acc" data-a="sh-export" ${off || S.busy || !(m.shop.length || m.cooks.length) ? 'disabled' : ''} title="${esc(off)}">${S.busy ? 'Выгружаю…' : 'Выгрузить в Google Таблицу'}</button>`;
+    <button class="btn acc" data-a="sh-export" ${off || S.busy ? 'disabled' : ''} title="${esc(off || 'Лист «Список покупок» — за период списка, лист «Гид» — за период гида')}">${S.busy ? 'Выгружаю…' : 'Выгрузить в Google Таблицу'}</button>`;
 }
 actions['sh-export'] = async () => {
   if (S.busy) return;
   S.busy = true; refresh();
   try {
-    const r = await SHEETS.exportModel(M());
+    const r = await SHEETS.exportModel(build(S.list.from, S.list.to, S.basis), build(S.guide.from, S.guide.to, S.basis));
     await store.put('settings', { id: 'export', ...(store.get('settings', 'export') || {}), sheetId: r.id, link: r.link, at: new Date().toISOString() });
     showToast('Таблица «Рацион — покупки и гид» обновлена');
   } catch (e) {
@@ -79,22 +92,31 @@ function amount(r) {
     <b>${r.buy > 0 ? fg(r.buy) + ' г' : 'не нужно'}</b><span class="pcs">${pcs}</span>${note ? `<small>${note}</small>` : ''}</button>`;
 }
 function listView(m) {
-  const groups = [];
-  for (const r of m.shop) { let g = groups.find((x) => x.cat === r.cat); if (!g) { g = { cat: r.cat, rows: [] }; groups.push(g); } g.rows.push(r); }
-  const done = m.shop.filter((r) => r.bought).length;
-  const cols = groups.map((g) => `<div class="sh-grp"><h3>${esc(g.cat)} · ${g.rows.length}</h3>${g.rows.map((r) => `
-    <div class="sh-item${r.bought ? ' done' : ''}${r.buy <= 0 ? ' zero' : ''}">
+  const cooks = m.cooks;
+  const chips = cooks.map((c) => `<button class="chip sh-dish${c.off ? ' off' : ''}" data-a="sh-excl" data-k="${esc(c.key)}" aria-pressed="${!c.off}" title="${c.off ? 'Включить в список покупок' : 'Не покупать для этого блюда'}">${c.off ? '' : CHECK}${esc(c.title)}<small>${dd(c.day)}</small></button>`).join('') +
+    (m.hasLoose ? `<button class="chip sh-dish${m.looseOff ? ' off' : ''}" data-a="sh-excl" data-k="loose" aria-pressed="${!m.looseOff}">${m.looseOff ? '' : CHECK}без рецепта</button>` : '');
+  const ncol = cooks.length + (m.hasLoose ? 1 : 0);
+  const head = `<tr><th class="sh-first-h" scope="col">Ингредиент · купить</th>${cooks.map((c) => `<th scope="col" class="sh-colh${c.off ? ' off' : ''}"><b class="nm">${esc(c.title)}</b><small>${dd(c.day)} · ${num(c.n)} порц.</small></th>`).join('')}${m.hasLoose ? `<th scope="col" class="sh-colh${m.looseOff ? ' off' : ''}"><b>без рецепта</b></th>` : ''}</tr>`;
+  let cat = null; let rows = '';
+  for (const r of m.shop) {
+    if (r.cat !== cat) { cat = r.cat; rows += `<tr class="sh-cat"><th scope="rowgroup" class="sh-first">${esc(cat)}</th>${ncol ? `<td colspan="${ncol}"></td>` : ''}</tr>`; }
+    const cells = cooks.map((c, i) => `<td class="${c.off ? 'off' : ''}">${r.cols[i] ? fg(r.cols[i]) : ''}</td>`).join('') + (m.hasLoose ? `<td class="${m.looseOff ? 'off' : ''}">${r.cols[m.looseCol] ? fg(r.cols[m.looseCol]) : ''}</td>` : '');
+    rows += `<tr class="sh-row${r.bought ? ' done' : ''}${r.buy <= 0 ? ' zero' : ''}"><th scope="row" class="sh-first"><div class="sh-item">
       <button class="sh-check" data-a="sh-bought" data-ing="${esc(r.ing)}" role="checkbox" aria-checked="${r.bought}" aria-label="${esc(r.name)}: куплено">${r.bought ? CHECK : ''}</button>
-      <span class="nm">${esc(r.name)}</span>${amount(r)}</div>`).join('')}</div>`).join('');
+      <span class="nm">${esc(r.name)}</span>${amount(r)}</div></th>${cells}</tr>`;
+  }
+  const done = m.shop.filter((r) => r.bought).length;
   const hid = m.hidden.length ? `<p class="hint sh-hidden">Не покупаются: ${m.hidden.map((r) => `<button class="link" data-a="sh-nobuy-off" data-ing="${esc(r.ing)}" title="Вернуть в список покупок">${esc(r.name)}</button>`).join(', ')}. Флажок «не покупать» — в карточке ингредиента.</p>` : '';
-  return `<section class="sh-list panel" aria-label="Список покупок">
+  return `${chips ? `<div class="sh-filter panel" role="group" aria-label="Блюда в списке покупок"><span class="sh-fl">Блюда</span>${chips}<span class="hint">выключенное блюдо не попадает в список и в Google Таблицу</span></div>` : ''}
+    <section class="sh-list panel" aria-label="Список покупок">
     <div class="sh-lh"><h2>Список покупок</h2><span class="hint">${m.shop.length} ${plural(m.shop.length, 'ингредиент', 'ингредиента', 'ингредиентов')}${done ? ` · ${done} куплено` : ''}</span>
-      <span class="spacer"></span><span class="hint">нажмите на количество, чтобы изменить</span></div>
-    <div class="sh-cols">${cols || '<p class="hint">Покупать нечего.</p>'}</div>${hid}</section>`;
+      <span class="spacer"></span><span class="hint">нажмите на количество, чтобы изменить${ncol ? ' · граммы по блюдам — справа' : ''}</span></div>
+    ${m.shop.length ? `<div class="sh-tablewrap"><table class="sh-table">${ncol ? `<thead>${head}</thead>` : ''}<tbody>${rows}</tbody></table></div>` : '<p class="hint">Покупать нечего.</p>'}${hid}</section>`;
 }
+actions['sh-excl'] = (t) => toggleExcl(L().from, L().to, t.dataset.k);
 actions['sh-bought'] = async (t) => {
   const r = model && model.shop.find((x) => x.ing === t.dataset.ing); if (!r) return;
-  await setShop(P.from, P.to, r.ing, { bought: !r.bought });
+  await setShop(L().from, L().to, r.ing, { bought: !r.bought });
   const b = $(`[data-a="sh-bought"][data-ing="${CSS.escape(r.ing)}"]`); if (b) b.focus();
 };
 actions['sh-nobuy-off'] = async (t) => {
@@ -117,7 +139,7 @@ function editView(l) {
   const val = pc ? halfUp(r.buy / uw) : Math.round(r.buy);
   return `<section class="dialog small" role="dialog" aria-modal="true" aria-labelledby="se-title"><div class="dlg-body">
     <h2 id="se-title">${esc(r.name)}</h2>
-    <p class="hint">По рецептам нужно <b>${fg(r.need)} г</b>${uw ? ` ≈ ${num(halfUp(r.need / uw))} ${esc(r.unitName)}` : ''} на ${esc(rangeTitle(P.from, P.to))}.</p>
+    <p class="hint">По рецептам нужно <b>${fg(r.need)} г</b>${uw ? ` ≈ ${num(halfUp(r.need / uw))} ${esc(r.unitName)}` : ''} на ${esc(rangeTitle(L().from, L().to))}.</p>
     <div class="se-row"><label class="field"><span>Купить</span><input id="se-buy" inputmode="decimal" value="${fmt(val, 1)}" autocomplete="off" data-autofocus></label>
       ${uw ? `<div class="seg sm" role="group" aria-label="Единицы"><button data-a="se-unit" data-v="pc" aria-pressed="${!!pc}">${esc(r.unitName)}</button><button data-a="se-unit" data-v="g" aria-pressed="${!pc}">г</button></div>` : '<span class="se-u">г</span>'}</div>
     <p class="hint" id="se-have">${haveText(r, r.buy)}</p>
@@ -142,11 +164,11 @@ actions['se-save'] = async () => {
   const l = topLayer(); const r = model.shop.find((x) => x.ing === l.ing); if (!r) return closeLayer();
   const g = readBuy(l, r);
   if (g == null) { $('#se-err').textContent = 'Введите число от 0.'; return; }
-  await setShop(P.from, P.to, r.ing, { have: Math.round((r.need - g) * 10) / 10 });
+  await setShop(L().from, L().to, r.ing, { have: Math.round((r.need - g) * 10) / 10 });
   closeLayer();
   showToast(`${r.name}: купить ${fg(g)} г`);
 };
-actions['se-reset'] = async () => { const l = topLayer(); await setShop(P.from, P.to, l.ing, { have: 0 }); closeLayer(); };
+actions['se-reset'] = async () => { const l = topLayer(); await setShop(L().from, L().to, l.ing, { have: 0 }); closeLayer(); };
 actions['se-nobuy'] = async () => {
   const l = topLayer(); const x = store.get('ingredients', l.ing); if (!x) return;
   await store.put('ingredients', { ...x, noBuy: true });
@@ -161,7 +183,7 @@ function guideView(m) {
       <span class="bar" aria-hidden="true"></span><span class="t"><b class="nm">${esc(c.title)}</b><small>${esc(mealsText(c, dayParts, num))}${c.variants.length > 1 ? ` · ${c.variants.length} вар.` : ''}</small></span>
       <b class="n">${num(c.n)} порц.</b><span aria-hidden="true">›</span></button>`).join('')}
     ${d.loose.length ? `<div class="sh-loose"><b>Ингредиенты без рецепта</b>${d.loose.map((x) => `<div><span>${esc(x.name)}</span><small>${esc(slotOf(x.slot).name)} · ${esc(x.who.join(', '))}</small><b>${looseAmt(x)}</b></div>`).join('')}</div>` : ''}</div>`).join('');
-  return `<section class="sh-guide" aria-label="Гид по приготовлению"><div class="sh-lh"><h2>Гид · ${m.cooks.length} ${plural(m.cooks.length, 'готовка', 'готовки', 'готовок')}</h2><span class="hint">нажмите — рецепт на эти порции</span></div>${days}</section>`;
+  return `<section class="sh-guide" aria-label="Гид по приготовлению"><div class="sh-lh"><h2>Гид · ${m.cooks.length} ${plural(m.cooks.length, 'готовка', 'готовки', 'готовок')}</h2><span class="hint">нажмите — рецепт на эти порции</span></div><div class="sh-days">${days}</div></section>`;
 }
 function looseAmt(x) {
   const ing = store.get('ingredients', x.ing);
@@ -189,10 +211,6 @@ function cookView(l) {
 }
 actions['sc-v'] = (t) => { const l = topLayer(); l.v = Number(t.dataset.v); hooks.renderOverlay(); };
 
-// ---------- период ----------
-actions['sh-prev'] = () => { shiftPeriod(-1); refresh(); };
-actions['sh-next'] = () => { shiftPeriod(1); refresh(); };
-actions['sh-today'] = () => { shiftPeriod(0, today()); refresh(); };
 actions['sh-basis'] = (t) => { S.basis = t.dataset.v; refresh(); };
 
 export function dialogView(l) {

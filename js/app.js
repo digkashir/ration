@@ -14,6 +14,7 @@ import * as PER from './persons.js';
 import * as TAGS from './tags.js';
 import * as PDND from './plan-dnd.js';
 import * as SHOP from './shop.js';
+import * as PERIOD from './period.js';
 
 const NAV_ICON = {
   plan: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
@@ -38,8 +39,9 @@ function route() {
 window.addEventListener('ration:toast', (e) => showToast(e.detail.text, e.detail.kind));
 
 async function withBusy(fn) {
-  if (ui.busy) return;
-  ui.busy = true; render();
+  // если что-то зависло дольше 20 секунд (например, вход на iPhone открылся в отдельном окне) — не блокируем нажатия
+  if (ui.busy && Date.now() - (ui.busyAt || 0) < 20000) return;
+  ui.busy = true; ui.busyAt = Date.now(); render();
   try { await fn(); } catch (e) {
     console.error(e);
     showToast(e.message || String(e), 'error', 8000);
@@ -126,7 +128,7 @@ function menuView() {
     <button role="menuitem" data-a="backup">Скачать резервную копию (JSON)</button>
     ${drv ? '<button role="menuitem" data-a="signout">Выйти из Google на этом устройстве</button>' : ''}
     <button role="menuitem" data-a="reset">Стереть данные на этом устройстве…</button>
-    <div class="ver">Рацион v${CONFIG.version}</div>
+    <div class="ver">Рацион v${CONFIG.version}${drv ? ` · вход ${drive.tokenUntil() ? 'действует до ' + new Date(drive.tokenUntil()).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : 'нужно подтвердить'}` : ''}${store.state.error ? ' · ' + esc(store.state.error).slice(0, 160) : ''}</div>
   </div>`;
 }
 
@@ -169,7 +171,7 @@ function layerHtml(l) {
   switch (l.type) {
     case 'ingredient': return ING.editorView(l);
     case 'recipe': return REC.view(l);
-    case 'dialog': return joinPickView(l) || PLAN.dialogView(l) || SHOP.dialogView(l) || TAGS.dialogView(l) || REC.dialogView(l) || GRP.dialogView(l);
+    case 'dialog': return joinPickView(l) || PERIOD.dialogView(l) || PLAN.dialogView(l) || SHOP.dialogView(l) || TAGS.dialogView(l) || REC.dialogView(l) || GRP.dialogView(l);
     case 'person': return PER.editorView(l);
     case 'menu': return menuView();
     case 'filters': return RECS.filtersSheet();
@@ -263,7 +265,17 @@ actions['setup-later'] = () => withBusy(async () => { if (!store.state.data) awa
 actions['sync-chip'] = () => {
   const s = store.state.status;
   if (s === 'local') return actions.menu();
-  if (s === 'auth') return withBusy(() => store.signInAgain());
+  if (s === 'auth') {
+    // если через 3 секунды страница всё ещё здесь (на iPhone переход иногда не случается) — запасная ссылка
+    setTimeout(() => {
+      if (document.visibilityState !== 'visible' || drive.hasToken() || !drive.lastAuthUrl() || $('#auth-fallback')) return;
+      const d = document.createElement('div'); d.id = 'auth-fallback'; d.className = 'auth-fallback';
+      d.innerHTML = `<span>Окно входа Google не открылось?</span><a class="btn acc" href="${esc(drive.lastAuthUrl())}">Войти через Google</a><button class="btn icon sm" aria-label="Закрыть">×</button>`;
+      d.querySelector('button').onclick = () => d.remove();
+      document.body.appendChild(d);
+    }, 3000);
+    return withBusy(() => store.signInAgain());
+  }
   return store.sync();
 };
 actions['sync-now'] = () => { closeAll(); store.sync(); };
@@ -340,6 +352,19 @@ if ('serviceWorker' in navigator) {
   });
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW', e)));
 }
+// Вернулись в приложение (или токен сохранил другой экземпляр страницы) — перечитать токен и синхронизироваться.
+function resumeAuth() {
+  if (document.visibilityState === 'hidden') return;
+  const fresh = drive.reloadToken();
+  if (drive.hasToken()) { const f = $('#auth-fallback'); if (f) f.remove(); }
+  const m = store.state.meta;
+  if (m && m.mode === 'drive' && drive.hasToken() && (fresh || store.state.status === 'auth')) store.sync();
+}
+document.addEventListener('visibilitychange', resumeAuth);
+window.addEventListener('focus', resumeAuth);
+window.addEventListener('pageshow', resumeAuth);
+window.addEventListener('storage', (e) => { if (e.key === 'ration.token') resumeAuth(); });
+
 // возвращение со страницы входа Google (вход переадресацией на iPhone/iPad)
 const authBack = drive.takeRedirect();
 store.init().then(() => {

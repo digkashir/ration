@@ -72,7 +72,7 @@ export function build(from, to, basis = 'cook') {
         if (v.own) v.name = `${v.s.name} — свой вариант (${v.who.join(', ')})`;
         v.ings = perPortionIngs(v.s).map((it) => ({ ing: it.ing, g: it.g * v.n, unit: it.unit }));
       }
-      const c = { id: 'c' + cooks.length, day: d, title, entries: list.map((e) => e.id), meals, n: meals.reduce((a, m) => a + m.n, 0), variants, main: list[0] };
+      const c = { id: 'c' + cooks.length, key: d + '|' + list[0].id, day: d, title, entries: list.map((e) => e.id), meals, n: meals.reduce((a, m) => a + m.n, 0), variants, main: list[0] };
       cooks.push(c);
       return c;
     });
@@ -93,11 +93,16 @@ export function build(from, to, basis = 'cook') {
     if (!r) { const x = getIng(ing); r = { ing, x, name: x ? x.name : 'удалённый ингредиент', cat: catOf(x), need: 0, cols: new Array(cooks.length + 1).fill(0) }; rows.set(ing, r); }
     return r;
   };
-  cooks.forEach((c, i) => { for (const v of c.variants) for (const it of v.ings) { const r = row(it.ing); r.cols[i] += it.g; r.need += it.g; } });
-  for (const d of days) for (const l of d.loose) { const r = row(l.ing); r.cols[LOOSE_COL] += l.g; r.need += l.g; }
+  // фильтр по блюдам (Q-81): выключенные готовки остаются столбцом (серым), но не входят в «нужно»
+  const ex = new Set((store.get('shop', exclId(from, to)) || {}).keys || []);
+  for (const c of cooks) c.off = ex.has(c.key);
+  const looseOff = ex.has('loose');
+  cooks.forEach((c, i) => { for (const v of c.variants) for (const it of v.ings) { const r = row(it.ing); r.cols[i] += it.g; if (!c.off) r.need += it.g; } });
+  for (const d of days) for (const l of d.loose) { const r = row(l.ing); r.cols[LOOSE_COL] += l.g; if (!looseOff) r.need += l.g; }
   const rec = (ing) => store.get('shop', shopId(from, to, ing));
   const shop = []; const hidden = [];
   for (const r of rows.values()) {
+    if (r.need <= 1e-9) continue; // нужен только выключенным блюдам
     const s = rec(r.ing);
     r.have = s && s.have ? Math.min(s.have, r.need) : 0;
     r.buy = Math.max(0, r.need - r.have);
@@ -111,12 +116,20 @@ export function build(from, to, basis = 'cook') {
   const sortRows = (a, b) => catIdx(a.cat) - catIdx(b.cat) || a.cat.localeCompare(b.cat, 'ru') || a.name.localeCompare(b.name, 'ru');
   shop.sort(sortRows); hidden.sort(sortRows);
   const hasLoose = days.some((d) => d.loose.length);
-  return { from, to, basis, days, cooks, shop, hidden, hasLoose, looseCol: LOOSE_COL };
+  return { from, to, basis, days, cooks, shop, hidden, hasLoose, looseCol: LOOSE_COL, looseOff };
 }
 
 /** Подпись приёмов готовки: «сб 26 обед — 3,5 · вс 27 обед — 3,5». */
 export function mealsText(c, dp, num) {
   return c.meals.map((m) => { const x = dp(m.date); return `${x.dow} ${x.d} ${slotOf(m.slot).name} — ${num(m.n)}`; }).join(' · ');
+}
+
+/** Выключенные в фильтре блюда периода: запись { id, from, to, keys: [ключ готовки | 'loose'] }. */
+export const exclId = (from, to) => `excl|${from}|${to}`;
+export async function toggleExcl(from, to, key) {
+  const id = exclId(from, to); const cur = store.get('shop', id) || { id, from, to, keys: [] };
+  const keys = new Set(cur.keys || []); if (keys.has(key)) keys.delete(key); else keys.add(key);
+  await store.put('shop', { ...cur, keys: [...keys] });
 }
 
 /** Запись «есть дома» / «куплено» для ингредиента в периоде. */

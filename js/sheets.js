@@ -33,8 +33,10 @@ const pad = (row, n, f) => { while (row.length < n) row.push(cell('', f)); retur
 
 // ---------- лист «Список покупок» ----------
 export function shopSheet(m) {
-  const cooks = m.cooks;
-  const loose = m.hasLoose;
+  // выключенные в фильтре блюда в таблицу не попадают (Q-81)
+  const on = m.cooks.map((c, i) => ({ c, i })).filter((x) => !x.c.off);
+  const cooks = on.map((x) => x.c);
+  const loose = m.hasLoose && !m.looseOff;
   const C0 = 6; // A ✓ | B ингредиент | C купить | D ≈ шт | E нужно | F есть дома | готовки…
   const ncol = C0 + cooks.length + (loose ? 1 : 0);
   const rows = []; const req = [];
@@ -81,7 +83,7 @@ export function shopSheet(m) {
       cell(round(x.need), right),
       cell(x.have ? round(x.have) : '', { ...right, ...txt({ foregroundColor: MUTED }) }),
     ];
-    x.cols.slice(0, cooks.length).forEach((g) => row.push(cell(g ? round(g) : '', right)));
+    on.forEach(({ i }) => { const g = x.cols[i]; row.push(cell(g ? round(g) : '', right)); });
     if (loose) row.push(cell(x.cols[m.looseCol] ? round(x.cols[m.looseCol]) : '', right));
     rows.push(row); r++;
   }
@@ -165,8 +167,8 @@ export function guideSheet(m) {
 
 // ---------- выгрузка ----------
 /** Все запросы batchUpdate: пересоздать два листа и заполнить их. oldIds — листы, которые сейчас есть в таблице. */
-export function buildRequests(m, oldIds) {
-  const shop = shopSheet(m); const guide = guideSheet(m);
+export function buildRequests(m, oldIds, mg = m) {
+  const shop = shopSheet(m); const guide = guideSheet(mg);
   const tmp = 900000 + Math.floor(Math.random() * 90000);
   return [
     { addSheet: { properties: { sheetId: tmp, title: 'tmp-' + tmp } } },
@@ -178,7 +180,7 @@ export function buildRequests(m, oldIds) {
   ];
 }
 
-export async function exportModel(m) {
+export async function exportModel(m, mg = m) {
   const set = store.get('settings', 'export');
   let id = set && set.sheetId;
   if (id) {
@@ -193,7 +195,7 @@ export async function exportModel(m) {
   const oldIds = (meta.sheets || []).map((s) => s.properties.sheetId);
   await drive.request(`${API}/${id}:batchUpdate`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ requests: buildRequests(m, oldIds) }),
+    body: JSON.stringify({ requests: buildRequests(m, oldIds, mg) }),
   });
   return { id, link: `https://docs.google.com/spreadsheets/d/${id}/edit` };
 }

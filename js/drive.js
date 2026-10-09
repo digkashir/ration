@@ -24,12 +24,16 @@ const scopes = (wide) => CONFIG.scope + (wide || wideWanted() ? ' ' + WIDE : '')
 const ls = { get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* */ } },
   del: (k) => { try { localStorage.removeItem(k); } catch (e) { /* */ } } };
-(function restore() {
+/** Перечитать токен из хранилища: его мог сохранить другой экземпляр страницы (на iPhone вход иногда
+ *  завершается в отдельном окне браузера поверх приложения). Возвращает true, если появился действующий токен. */
+export function reloadToken() {
   try {
     const s = JSON.parse(ls.get(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || 'null');
-    if (s && s.exp > Date.now()) { token = s.token; tokenExp = s.exp; tokenScope = s.scope || ''; }
+    if (s && s.exp > Date.now() && (s.token !== token || !hasToken())) { token = s.token; tokenExp = s.exp; tokenScope = s.scope || ''; return true; }
   } catch (e) { /* нет хранилища — не страшно */ }
-})();
+  return false;
+}
+reloadToken();
 
 function saveToken() { ls.set(TOKEN_KEY, JSON.stringify({ token, exp: tokenExp, scope: tokenScope })); }
 
@@ -46,6 +50,10 @@ export function useRedirect() {
 }
 export const redirectUri = () => CONFIG.redirectUri || (location.origin + location.pathname.replace(/index\.html$/, ''));
 
+let lastUrl = '';
+/** Адрес последней попытки входа переадресацией — для запасной ссылки, если переход не случился. */
+export const lastAuthUrl = () => lastUrl;
+export const tokenUntil = () => (hasToken() ? tokenExp : 0);
 function redirectSignIn({ hint, consent, then, wide }) {
   const st = Math.random().toString(36).slice(2) + Date.now().toString(36);
   ls.set(PENDING_KEY, JSON.stringify({ state: st, then: then || '', route: location.hash || '', at: Date.now() }));
@@ -55,8 +63,21 @@ function redirectSignIn({ hint, consent, then, wide }) {
   });
   if (consent) q.set('prompt', 'consent');
   if (hint) q.set('login_hint', hint);
-  location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + q.toString());
-  return new Promise(() => {}); // страница уходит на Google
+  const before = token;
+  lastUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + q.toString();
+  location.assign(lastUrl);
+  // Обычно страница уходит на Google и этот код больше не выполняется. Но на iPhone в приложении с экрана
+  // «Домой» вход может открыться в отдельном окне поверх приложения, а приложение под ним остаётся живым.
+  // Тогда ждём, пока окно закроют, перечитываем токен и не оставляем приложение «занятым» навсегда.
+  return new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    let hidden = false;
+    const done = (ok) => { clearInterval(iv); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', onVis); ok ? resolve(token) : reject(new AuthError('Вход не завершён. Нажмите «Войти, чтобы сохранить» ещё раз.')); };
+    const check = () => { if ((reloadToken() || (hasToken() && token !== before))) done(true); };
+    const onVis = () => { if (document.visibilityState === 'hidden') { hidden = true; return; } check(); if (hidden && !hasToken()) setTimeout(() => { check(); if (iv) done(hasToken()); }, 1500); };
+    const iv = setInterval(() => { check(); if (Date.now() - t0 > 120000) done(false); }, 1000);
+    document.addEventListener('visibilitychange', onVis); window.addEventListener('focus', onVis);
+  });
 }
 
 /**

@@ -814,3 +814,60 @@ ol.steps li::before { content: counter(st); width: 26px; height: 26px; border-ra
 .ios-join { text-align: left; gap: 10px; }
 .ios-join .fine { margin: 0; }
 .ios-join .link { align-self: flex-start; }
+.auth-fallback { position: fixed; left: 12px; right: 12px; top: 70px; z-index: 40; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--dark); color: var(--dark-txt); border-radius: 16px; padding: 10px 12px; box-shadow: var(--key-dark), 0 10px 30px rgba(0,0,0,.25); }
+.auth-fallback span { flex: 1; min-width: 160px; font-size: 14px; }
+.auth-fallback .btn.icon { background: #4A4A4E; color: var(--dark-txt); box-shadow: none; }
+
+/* ================= v0.5 · Покупки: вкладки, общий период, таблица, фильтр ================= */
+.shop-page .shop-top { margin-bottom: 8px; }
+.shop-page .pnav-wrap { margin-left: auto; }
+.shop-sub { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.sh-filter { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; border-radius: 20px; padding: 10px 14px; margin-bottom: 12px; }
+.sh-fl { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-right: 4px; }
+.sh-dish { display: inline-flex; align-items: center; gap: 6px; height: 36px; background: var(--dark); color: var(--dark-txt); font-weight: 600; }
+.sh-dish small { font-weight: 400; opacity: .7; font-size: 11px; }
+.sh-dish.off { background: var(--surf); color: var(--muted); text-decoration: line-through; box-shadow: inset 0 0 0 1.5px var(--line); font-weight: 400; }
+.sh-filter .hint { margin-left: 6px; }
+.sh-tablewrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -6px; padding: 0 6px; }
+.sh-table { border-collapse: separate; border-spacing: 0 3px; width: 100%; }
+.sh-table th, .sh-table td { text-align: right; font-weight: 400; font-size: 13px; padding: 0 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sh-table thead th { vertical-align: bottom; padding-bottom: 4px; }
+.sh-first, .sh-first-h { position: sticky; left: 0; z-index: 1; text-align: left !important; padding: 0 !important; background: var(--surf); width: 420px; min-width: 300px; }
+.sh-first-h { font-size: 11px !important; font-weight: 700 !important; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; padding: 0 0 6px 10px !important; }
+.sh-colh { min-width: 104px; }
+.sh-colh b { display: block; font-size: 12px; font-weight: 700; color: var(--ink); max-width: 140px; overflow: hidden; text-overflow: ellipsis; margin-left: auto; }
+.sh-colh small { display: block; font-size: 11px; color: var(--muted); }
+.sh-colh.off b, .sh-colh.off small { color: var(--line); text-decoration: line-through; }
+.sh-table td.off { color: var(--line); }
+.sh-cat th { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 8px 0 0 6px !important; }
+.sh-row td { background: var(--surf2); height: 44px; }
+.sh-row td:last-child { border-radius: 0 12px 12px 0; }
+.sh-row .sh-first .sh-item { border-radius: 12px 0 0 12px; }
+.sh-row:not(:has(td)) .sh-first .sh-item { border-radius: 12px; }
+.sh-row.done td { background: transparent; }
+.sh-table .sh-item { min-height: 44px; }
+.sh-table .sh-first { box-shadow: 8px 0 8px -8px rgba(0,0,0,0); }
+.sh-tablewrap.scrolled .sh-first { box-shadow: 8px 0 8px -8px rgba(0,0,0,.25); }
+.sh-days { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+@media (max-width: 860px) {
+  .shop-page .pnav-wrap { margin-left: 0; width: 100%; flex-wrap: wrap; }
+  .shop-page .pnav-wrap .seg { overflow-x: auto; max-width: 100%; }
+  .sh-first, .sh-first-h { width: 230px; min-width: 230px; max-width: 230px; }
+  .sh-first .sh-item .nm { white-space: normal; line-height: 1.15; font-size: 13px; }
+  .sh-first .sh-amt { grid-template-columns: auto; padding: 4px 6px; }
+  .sh-first .sh-amt .pcs { font-size: 11px; }
+  .sh-filter { flex-wrap: nowrap; overflow-x: auto; }
+  .sh-filter .hint { display: none; }
+  .sh-dish { flex: 0 0 auto; }
+  .sh-days { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ================= v0.5 · вкладка «Ингредиенты» в боковой панели плана (16A) ================= */
+.ps-tabs { display: flex; box-shadow: none; background: var(--surf2); flex: 0 0 auto; }
+.ps-tabs button { flex: 1; }
+.ps-ing .ps-it { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ps-ing .ps-it small { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ps-plus { color: var(--muted); font-size: 18px; line-height: 1; }
+.ps-cap { margin: 6px 4px 0; font-size: 11px; color: var(--muted); }
+.sh-period { margin-left: auto; }
+@media (max-width: 860px) { .sh-period { margin-left: 0; width: 100%; } }

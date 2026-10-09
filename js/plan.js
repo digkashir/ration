@@ -10,13 +10,14 @@ import {
   cookOf, cookBlock, cookDays, cookAfterMove,
 } from './plan-model.js';
 import { cookView, cookTarget } from './plan-cook.js';
+import * as PER from './period.js';
 import { amountText } from './recipe.js';
 
 const T = today();
 ui.plan = ui.plan || {
   len: 'week', from: T, to: addDays(T, 6), expanded: new Set([T]), phoneDay: T, hl: null,
   mode: 'eat', cookFilter: null, cookExtra: 0,
-  side: { q: '', slot: null, open: new Set() },
+  side: { q: '', slot: null, open: new Set(), tab: 'rec', qi: '' },
 };
 const P = ui.plan;
 const getIng = (id) => store.get('ingredients', id);
@@ -25,31 +26,18 @@ const slotVar = (id) => `var(--s-${slotOf(id).tag.replace('meal-', '')})`;
 const num = (n) => fmt(n, 1);
 const STAR = '<span aria-hidden="true">*</span>';
 
-// ---------- период ----------
-function setLen(len, from = P.from) {
-  P.len = len;
-  if (len === 'day') { P.from = from; P.to = from; }
-  else if (len === 'week') { P.from = from; P.to = addDays(from, 6); }
-  else if (len === 'month') { const d = fromIso(from); P.from = iso(new Date(d.getFullYear(), d.getMonth(), 1)); P.to = iso(new Date(d.getFullYear(), d.getMonth() + 1, 0)); }
-}
-function shift(dir) {
-  if (P.len === 'month') { const d = fromIso(P.from); setLen('month', iso(new Date(d.getFullYear(), d.getMonth() + dir, 1))); return; }
-  const n = diffDays(P.to, P.from) + 1;
-  P.from = addDays(P.from, dir * n); P.to = addDays(P.to, dir * n);
-}
+// ---------- период (общий переключатель, period.js) ----------
+const setLen = (len, from = P.from) => PER.setLen(P, len, from);
+PER.register('plan', P, { refresh: () => refresh(), onToday: (d) => { P.expanded = new Set([d]); P.phoneDay = d; } });
 
 // ---------- страница ----------
 export function page() {
-  const segs = [['day', 'День'], ['week', '7 дней'], ['month', 'Месяц'], ['custom', 'Свой период']]
-    .map(([v, l]) => `<button data-a="pl-len" data-v="${v}" aria-pressed="${P.len === v}">${l}</button>`).join('');
   return `<main class="page plan-page${P.mode === 'cook' ? ' cook' : ''}">
     <aside class="plan-side only-wide" id="plan-side" aria-label="Рецепты для плана"></aside>
     <section class="plan-main">
       <div class="plan-top">
         <div class="seg only-wide" role="group" aria-label="Режим плана"><button data-a="pl-mode" data-v="eat" aria-pressed="${P.mode === 'eat'}">По дням приёма</button><button data-a="pl-mode" data-v="cook" aria-pressed="${P.mode === 'cook'}">По дням приготовления</button></div>
-        <div class="pnav-wrap"><div class="pnav"><button class="btn icon sm" data-a="pl-prev" aria-label="Раньше">‹</button><h1 id="pl-title"></h1><button class="btn icon sm" data-a="pl-next" aria-label="Позже">›</button>
-          <button class="link" data-a="pl-today">сегодня</button></div>
-        <div class="seg only-wide" role="group" aria-label="Период">${segs}</div></div>
+        ${PER.view('plan', { segClass: 'only-wide' })}
       </div>
       <div id="plan-body"></div>
     </section>
@@ -67,8 +55,7 @@ export function refreshSide() {
 }
 export function refresh() {
   if (!$('#plan-body')) return;
-  $('#pl-title').textContent = rangeTitle(P.from, P.to);
-  $$('[data-a="pl-len"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === P.len)));
+  PER.sync('plan');
   $$('[data-a="pl-mode"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === P.mode)));
   const pg = $('.plan-page'); if (pg) pg.classList.toggle('cook', P.mode === 'cook');
   refreshSide();
@@ -99,7 +86,8 @@ function sideView() {
       <div class="ps-gh"><button class="ps-gt" data-a="pl-side-group" data-id="${esc(x.g.id)}" aria-expanded="${open}" data-drag-gid="${esc(x.g.id)}">${ICON.grip}<span class="nm">${esc(x.g.name)}</span><span class="chip-s dark">группа · ${x.all.length}</span></button></div>
       ${open ? x.m.map((r, i) => `<button class="ps-item sub" data-a="pl-side-pick" data-rid="${esc(r.id)}" data-drag-rid="${esc(r.id)}" data-in-gid="${esc(x.g.id)}">${ICON.grip}<span class="nm">${esc(r.name)}</span>${r.id === x.all[0].id ? '<span class="chip-s dark">по умолч.</span>' : ''}<b>${kcal(r)}</b></button>`).join('') : ''}</div>`;
   }).join('');
-  return `<div class="ps-head"><h2>Рецепты</h2></div>
+  if (P.side.tab === 'ing') return sideTabs() + sideIngView();
+  return `${sideTabs()}
     <label class="search">${ICON.search}<span class="sr-only">Поиск рецепта</span><input id="ps-q" type="search" placeholder="Блюдо или ингредиент" value="${esc(P.side.q)}" autocomplete="off"></label>
     <div class="f-chips">${chips}</div>
     <div class="ps-list" id="ps-list">${items || '<p class="hint">Ничего не нашлось</p>'}</div>
@@ -238,13 +226,6 @@ const getE = (id) => store.get('plan', id);
 async function putE(e) { await store.put('plan', e); }
 function withEater(e, pid, fn) { const eaters = { ...e.eaters }; eaters[pid] = fn(eaters[pid] ? { ...eaters[pid] } : null); if (!eaters[pid]) delete eaters[pid]; return { ...e, eaters }; }
 
-actions['pl-prev'] = () => { shift(-1); refresh(); };
-actions['pl-next'] = () => { shift(1); refresh(); };
-actions['pl-today'] = () => { const t = today(); setLen(P.len === 'custom' ? 'week' : P.len, t); P.expanded = new Set([t]); P.phoneDay = t; refresh(); };
-actions['pl-len'] = (t) => {
-  if (t.dataset.v === 'custom') { openLayer({ type: 'dialog', kind: 'pl-range' }); return; }
-  setLen(t.dataset.v, P.len === 'month' ? today() : P.from); refresh();
-};
 actions['pl-day'] = (t) => { const d = t.dataset.date; if (P.expanded.has(d)) P.expanded.delete(d); else P.expanded.add(d); refresh(); const b = $(`.pt-dl[data-date="${d}"]`); if (b) b.focus(); };
 actions['pl-phone-day'] = (t) => { P.phoneDay = t.dataset.date; refresh(); };
 actions['pl-n'] = async (t) => {
@@ -285,13 +266,39 @@ export async function setCook(id, c) {
   showToast(`«${entryName(e)}»: готовить ${t.label}`);
   return true;
 }
+// ---------- вкладка «Ингредиенты» боковой панели (16A, Q-78) ----------
+function sideTabs() {
+  return `<div class="seg ps-tabs" role="tablist" aria-label="Что добавить"><button role="tab" data-a="pl-side-tab" data-v="rec" aria-selected="${P.side.tab !== 'ing'}" aria-pressed="${P.side.tab !== 'ing'}">Рецепты</button><button role="tab" data-a="pl-side-tab" data-v="ing" aria-selected="${P.side.tab === 'ing'}" aria-pressed="${P.side.tab === 'ing'}">Ингредиенты</button></div>`;
+}
+function ingLine(x) {
+  return `<button class="ps-item ps-ing" data-a="pl-side-ing" data-ing="${esc(x.id)}" data-drag-ing="${esc(x.id)}">${ICON.grip}<span class="ps-it"><span class="nm">${esc(x.name)}</span><small>${fmt(x.kcal * 100)} ккал / 100 г${x.unitWeight ? ' · 1 ' + esc(x.unitName || 'шт') + ' ≈ ' + fmt(x.unitWeight) + ' г' : ''}</small></span><span class="ps-plus" aria-hidden="true">+</span></button>`;
+}
+function sideIngList() {
+  const q = norm(P.side.qi).trim();
+  const all = store.list('ingredients').filter((x) => !q || norm(x.name).includes(q)).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  let recent = '';
+  if (!q) {
+    const seen = new Set(); const rec = [];
+    for (const e of entries().filter((x) => x.kind === 'ing').sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))) {
+      if (seen.has(e.ing)) continue; seen.add(e.ing); const x = getIng(e.ing); if (x) rec.push(x); if (rec.length >= 5) break;
+    }
+    if (rec.length) recent = `<p class="ps-cap">Недавние</p>${rec.map(ingLine).join('')}<p class="ps-cap">Все · по алфавиту</p>`;
+  }
+  return recent + (all.map(ingLine).join('') || '<p class="hint">Ничего не нашлось</p>');
+}
+function sideIngView() {
+  return `<label class="search">${ICON.search}<span class="sr-only">Поиск ингредиента</span><input id="ps-qi" type="search" placeholder="Найти ингредиент" value="${esc(P.side.qi)}" autocomplete="off"></label>
+    <div class="ps-list" id="ps-list">${sideIngList()}</div>
+    <p class="hint">Нажмите, чтобы добавить, или перетащите в день — откроется окно с выбранным ингредиентом.</p>`;
+}
+const sideDay = () => [...P.expanded].filter((x) => x >= P.from && x <= P.to).sort()[0] || (T >= P.from && T <= P.to ? T : P.from);
+actions['pl-side-tab'] = (t) => { if (P.side.tab === t.dataset.v) return; P.side.tab = t.dataset.v; refreshSide(); const b = $(`[data-a="pl-side-tab"][data-v="${t.dataset.v}"]`); if (b) b.focus(); };
+actions['pl-side-ing'] = (t) => openAdd({ date: sideDay(), tab: 'ing', ing: t.dataset.ing });
+
 actions['pl-add'] = (t) => openAdd({ date: t.dataset.date, tab: t.dataset.tab || 'dish' });
 actions['pl-side-slot'] = (t) => { P.side.slot = P.side.slot === t.dataset.v ? null : t.dataset.v; refreshSide(); };
 actions['pl-side-group'] = (t) => { const id = t.dataset.id; if (P.side.open.has(id)) P.side.open.delete(id); else P.side.open.add(id); refreshSide(); };
-actions['pl-side-pick'] = (t) => {
-  const d = [...P.expanded].filter((x) => x >= P.from && x <= P.to).sort()[0] || (T >= P.from && T <= P.to ? T : P.from);
-  openAdd({ date: d, rid: t.dataset.rid });
-};
+actions['pl-side-pick'] = (t) => openAdd({ date: sideDay(), rid: t.dataset.rid });
 
 // ---------- подсветка похожих («*») ----------
 export function highlight(id) {
@@ -307,10 +314,11 @@ document.addEventListener('mouseover', (ev) => {
 
 // ---------- добавить блюдо / ингредиент (12F) ----------
 hooks.openAdd = (o) => openAdd(o);
-export function openAdd({ date, tab = 'dish', rid = null, gid = null, slot = null }) {
-  const l = { type: 'dialog', kind: 'pl-add', date: date || today(), tab, q: '', pick: null, slot: slot || 'lunch', who: {}, unit: 'g' };
+export function openAdd({ date, tab = 'dish', rid = null, gid = null, slot = null, ing = null }) {
+  const l = { type: 'dialog', kind: 'pl-add', date: date || today(), tab: ing ? 'ing' : tab, q: '', pick: null, slot: slot || (ing ? 'snack' : 'lunch'), who: {}, unit: 'g' };
   for (const p of persons()) l.who[p.id] = { on: true, n: 1, rid: null };
   if (rid || gid) pick(l, rid ? { rid } : { gid });
+  if (ing && getIng(ing)) { pick(l, { ing }); l.q = getIng(ing).name; }
   openLayer(l);
 }
 function pick(l, what) {
@@ -570,19 +578,6 @@ actions['pd-cook'] = async (t) => { const l = topLayer(); await setCook(l.e, t.d
 actions['pd-open'] = () => { const l = topLayer(); const e = getE(l.e); closeLayer(); openLayer({ type: 'recipe', id: e.main, mode: 'view' }); };
 actions['pd-del'] = async () => { const l = topLayer(); const e = getE(l.e); await store.remove('plan', e.id); closeLayer(); showToast(`«${entryName(e)}» удалено из плана`); };
 
-// ---------- свой период ----------
-function rangeView() {
-  return `<section class="dialog small" role="dialog" aria-modal="true" aria-labelledby="pr-title"><div class="dlg-body"><h2 id="pr-title">Свой период</h2>
-    <div class="grid2"><label class="field"><span>С</span><input type="date" id="pr-from" value="${P.from}"></label><label class="field"><span>По</span><input type="date" id="pr-to" value="${P.to}"></label></div>
-    <p class="err" id="pr-err" role="alert"></p></div><div class="dlg-foot"><button class="btn" data-a="layer-close">Отмена</button><button class="btn acc" data-a="pr-ok">Показать</button></div></section>`;
-}
-actions['pr-ok'] = () => {
-  const f = $('#pr-from').value, t = $('#pr-to').value;
-  if (!f || !t || t < f) { $('#pr-err').textContent = 'Проверьте даты: «по» не раньше «с».'; return; }
-  if (diffDays(t, f) > 92) { $('#pr-err').textContent = 'Не больше трёх месяцев.'; return; }
-  P.len = 'custom'; P.from = f; P.to = t; closeLayer(); refresh();
-};
-
 // ---------- экземпляр → рецепт (12E) ----------
 function instSaveView(l) {
   const e = getE(l.e); const p = store.get('persons', l.p); if (!e || !p) return '';
@@ -636,13 +631,13 @@ export function dialogView(l) {
   if (l.kind === 'pl-add') return addView(l);
   if (l.kind === 'pl-eater') return eaterView(l);
   if (l.kind === 'pl-dish') return dishMenuView(l);
-  if (l.kind === 'pl-range') return rangeView();
   if (l.kind === 'pl-inst-save') return instSaveView(l);
   return '';
 }
 
 export function onInput(e) {
   const t = e.target;
+  if (t.id === 'ps-qi') { P.side.qi = t.value; const el = $('#ps-list'); if (el) el.innerHTML = sideIngList(); return true; }
   if (t.id === 'ps-q') { P.side.q = t.value; const el = $('#ps-list'); if (el) { const tmp = document.createElement('div'); tmp.innerHTML = sideView(); el.innerHTML = tmp.querySelector('#ps-list').innerHTML; } return true; }
   const l = paL();
   if (l && t.id === 'pa-q') { l.q = t.value; paUpdate(l, ['list']); return true; }
@@ -660,11 +655,6 @@ export function onKeydown(e) {
   }
   if (e.target.id === 'pa-q' && e.key === 'Enter') { e.preventDefault(); const f = $('#pa-list .pa-item'); if (f) f.click(); return true; }
   return false;
-}
-/** Сдвиг периода плана (страница покупок пользуется тем же периодом). dir = 0 — к сегодняшнему дню. */
-export function shiftPeriod(dir, date) {
-  if (dir === 0) { setLen(P.len === 'custom' ? 'week' : P.len, date || today()); P.expanded = new Set([date || today()]); return; }
-  shift(dir);
 }
 export { stepInfo, getE, putE, P as planState, setLen };
 export const _unused = { iso, ingGrams, cookBlock };
