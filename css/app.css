@@ -871,3 +871,16 @@ ol.steps li::before { content: counter(st); width: 26px; height: 26px; border-ra
 .ps-cap { margin: 6px 4px 0; font-size: 11px; color: var(--muted); }
 .sh-period { margin-left: auto; }
 @media (max-width: 860px) { .sh-period { margin-left: 0; width: 100%; } }
+
+/* v0.4.6 · компактная таблица покупок: столбцы блюд прижаты к списку, вертикальные разделители */
+.sh-table { width: auto; }
+.sh-first, .sh-first-h { width: 380px; }
+.sh-table thead th.sh-colh, .sh-table tbody td { border-left: 1px solid var(--line); }
+.sh-table .sh-cat td { border-left-color: transparent; }
+.sh-colh { min-width: 96px; max-width: 160px; }
+/* v0.4.6: таблица покупок — столбцы блюд прижаты к списку, вертикальные разделители */
+.sh-table { width: auto; }
+.sh-colh { min-width: 0; width: 112px; }
+.sh-table td, .sh-colh { box-shadow: inset 1px 0 0 var(--line); }
+.sh-cat td { box-shadow: none; }
+.sh-first-h, .sh-first { width: 380px; }

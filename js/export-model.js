@@ -97,7 +97,15 @@ export function build(from, to, basis = 'cook') {
   const ex = new Set((store.get('shop', exclId(from, to)) || {}).keys || []);
   for (const c of cooks) c.off = ex.has(c.key);
   const looseOff = ex.has('loose');
-  cooks.forEach((c, i) => { for (const v of c.variants) for (const it of v.ings) { const r = row(it.ing); r.cols[i] += it.g; if (!c.off) r.need += it.g; } });
+  // «блюдо» из одного ингредиента (например, рецепт «Банан») в списке покупок — тоже отдельный ингредиент:
+  // все такие собираются в один столбец вместе с ингредиентами без рецепта
+  for (const c of cooks) c.single = c.variants.length > 0 && c.variants.every((v) => v.ings.length === 1);
+  cooks.forEach((c, i) => {
+    for (const v of c.variants) for (const it of v.ings) {
+      const r = row(it.ing);
+      if (c.single) { r.cols[LOOSE_COL] += it.g; if (!looseOff) r.need += it.g; } else { r.cols[i] += it.g; if (!c.off) r.need += it.g; }
+    }
+  });
   for (const d of days) for (const l of d.loose) { const r = row(l.ing); r.cols[LOOSE_COL] += l.g; if (!looseOff) r.need += l.g; }
   const rec = (ing) => store.get('shop', shopId(from, to, ing));
   const shop = []; const hidden = [];
@@ -115,7 +123,7 @@ export function build(from, to, basis = 'cook') {
   }
   const sortRows = (a, b) => catIdx(a.cat) - catIdx(b.cat) || a.cat.localeCompare(b.cat, 'ru') || a.name.localeCompare(b.name, 'ru');
   shop.sort(sortRows); hidden.sort(sortRows);
-  const hasLoose = days.some((d) => d.loose.length);
+  const hasLoose = days.some((d) => d.loose.length) || cooks.some((c) => c.single);
   return { from, to, basis, days, cooks, shop, hidden, hasLoose, looseCol: LOOSE_COL, looseOff };
 }
 

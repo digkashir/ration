@@ -34,7 +34,7 @@ const pad = (row, n, f) => { while (row.length < n) row.push(cell('', f)); retur
 // ---------- лист «Список покупок» ----------
 export function shopSheet(m) {
   // выключенные в фильтре блюда в таблицу не попадают (Q-81)
-  const on = m.cooks.map((c, i) => ({ c, i })).filter((x) => !x.c.off);
+  const on = m.cooks.map((c, i) => ({ c, i })).filter((x) => !x.c.off && !x.c.single);
   const cooks = on.map((x) => x.c);
   const loose = m.hasLoose && !m.looseOff;
   const C0 = 6; // A ✓ | B ингредиент | C купить | D ≈ шт | E нужно | F есть дома | готовки…
@@ -60,7 +60,7 @@ export function shopSheet(m) {
   const hr = { ...hf, horizontalAlignment: 'RIGHT' };
   const r2 = [cell('✓', { ...hf, horizontalAlignment: 'CENTER' }), cell('Ингредиент', hf), cell('Купить, г', hr), cell('≈ штук', hr), cell('Нужно, г', hr), cell('Есть дома, г', hr)];
   for (const c of cooks) r2.push(cell(`${c.title}\n${num(c.n)} порц.`, hf));
-  if (loose) r2.push(cell('без рецепта', hf));
+  if (loose) r2.push(cell('отдельные ингредиенты', hf));
   rows.push(r2);
   // группы по отделам
   let r = 2; const checks = [];

@@ -92,15 +92,16 @@ function amount(r) {
     <b>${r.buy > 0 ? fg(r.buy) + ' г' : 'не нужно'}</b><span class="pcs">${pcs}</span>${note ? `<small>${note}</small>` : ''}</button>`;
 }
 function listView(m) {
-  const cooks = m.cooks;
+  const idx = m.cooks.map((c, i) => ({ c, i })).filter((x) => !x.c.single); // блюда со своими столбцами
+  const cooks = idx.map((x) => x.c);
   const chips = cooks.map((c) => `<button class="chip sh-dish${c.off ? ' off' : ''}" data-a="sh-excl" data-k="${esc(c.key)}" aria-pressed="${!c.off}" title="${c.off ? 'Включить в список покупок' : 'Не покупать для этого блюда'}">${c.off ? '' : CHECK}${esc(c.title)}<small>${dd(c.day)}</small></button>`).join('') +
-    (m.hasLoose ? `<button class="chip sh-dish${m.looseOff ? ' off' : ''}" data-a="sh-excl" data-k="loose" aria-pressed="${!m.looseOff}">${m.looseOff ? '' : CHECK}без рецепта</button>` : '');
+    (m.hasLoose ? `<button class="chip sh-dish${m.looseOff ? ' off' : ''}" data-a="sh-excl" data-k="loose" aria-pressed="${!m.looseOff}">${m.looseOff ? '' : CHECK}отдельные ингредиенты</button>` : '');
   const ncol = cooks.length + (m.hasLoose ? 1 : 0);
-  const head = `<tr><th class="sh-first-h" scope="col">Ингредиент · купить</th>${cooks.map((c) => `<th scope="col" class="sh-colh${c.off ? ' off' : ''}"><b class="nm">${esc(c.title)}</b><small>${dd(c.day)} · ${num(c.n)} порц.</small></th>`).join('')}${m.hasLoose ? `<th scope="col" class="sh-colh${m.looseOff ? ' off' : ''}"><b>без рецепта</b></th>` : ''}</tr>`;
+  const head = `<tr><th class="sh-first-h" scope="col">Ингредиент · купить</th>${cooks.map((c) => `<th scope="col" class="sh-colh${c.off ? ' off' : ''}"><b class="nm">${esc(c.title)}</b><small>${dd(c.day)} · ${num(c.n)} порц.</small></th>`).join('')}${m.hasLoose ? `<th scope="col" class="sh-colh${m.looseOff ? ' off' : ''}"><b>отдельные</b><small>ингредиенты</small></th>` : ''}</tr>`;
   let cat = null; let rows = '';
   for (const r of m.shop) {
     if (r.cat !== cat) { cat = r.cat; rows += `<tr class="sh-cat"><th scope="rowgroup" class="sh-first">${esc(cat)}</th>${ncol ? `<td colspan="${ncol}"></td>` : ''}</tr>`; }
-    const cells = cooks.map((c, i) => `<td class="${c.off ? 'off' : ''}">${r.cols[i] ? fg(r.cols[i]) : ''}</td>`).join('') + (m.hasLoose ? `<td class="${m.looseOff ? 'off' : ''}">${r.cols[m.looseCol] ? fg(r.cols[m.looseCol]) : ''}</td>` : '');
+    const cells = idx.map(({ c, i }) => `<td class="${c.off ? 'off' : ''}">${r.cols[i] ? fg(r.cols[i]) : ''}</td>`).join('') + (m.hasLoose ? `<td class="${m.looseOff ? 'off' : ''}">${r.cols[m.looseCol] ? fg(r.cols[m.looseCol]) : ''}</td>` : '');
     rows += `<tr class="sh-row${r.bought ? ' done' : ''}${r.buy <= 0 ? ' zero' : ''}"><th scope="row" class="sh-first"><div class="sh-item">
       <button class="sh-check" data-a="sh-bought" data-ing="${esc(r.ing)}" role="checkbox" aria-checked="${r.bought}" aria-label="${esc(r.name)}: куплено">${r.bought ? CHECK : ''}</button>
       <span class="nm">${esc(r.name)}</span>${amount(r)}</div></th>${cells}</tr>`;
