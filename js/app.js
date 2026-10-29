@@ -15,6 +15,7 @@ import * as TAGS from './tags.js';
 import * as PDND from './plan-dnd.js';
 import * as SHOP from './shop.js';
 import * as PERIOD from './period.js';
+import * as IMPORT from './import.js';
 
 const NAV_ICON = {
   plan: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
@@ -126,6 +127,7 @@ function menuView() {
     ${drv && m.fileLink ? `<a role="menuitem" href="${esc(m.fileLink)}" target="_blank" rel="noopener">Открыть файл базы на Диске</a>` : ''}
     <a role="menuitem" href="#/tags">Тэги рецептов</a>
     <button role="menuitem" data-a="backup">Скачать резервную копию (JSON)</button>
+    <button role="menuitem" data-a="import">Добавить рецепты из файла…</button>
     ${drv ? '<button role="menuitem" data-a="signout">Выйти из Google на этом устройстве</button>' : ''}
     <button role="menuitem" data-a="reset">Стереть данные на этом устройстве…</button>
     <div class="ver">Рацион v${CONFIG.version}${drv ? ` · вход ${drive.tokenUntil() ? 'действует до ' + new Date(drive.tokenUntil()).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : 'нужно подтвердить'}` : ''}${store.state.error ? ' · ' + esc(store.state.error).slice(0, 160) : ''}</div>
@@ -171,7 +173,7 @@ function layerHtml(l) {
   switch (l.type) {
     case 'ingredient': return ING.editorView(l);
     case 'recipe': return REC.view(l);
-    case 'dialog': return joinPickView(l) || PERIOD.dialogView(l) || PLAN.dialogView(l) || SHOP.dialogView(l) || TAGS.dialogView(l) || REC.dialogView(l) || GRP.dialogView(l);
+    case 'dialog': return joinPickView(l) || IMPORT.dialogView(l) || PERIOD.dialogView(l) || PLAN.dialogView(l) || SHOP.dialogView(l) || TAGS.dialogView(l) || REC.dialogView(l) || GRP.dialogView(l);
     case 'person': return PER.editorView(l);
     case 'menu': return menuView();
     case 'filters': return RECS.filtersSheet();

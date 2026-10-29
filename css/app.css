@@ -884,3 +884,4 @@ ol.steps li::before { content: counter(st); width: 26px; height: 26px; border-ra
 .sh-table td, .sh-colh { box-shadow: inset 1px 0 0 var(--line); }
 .sh-cat td { box-shadow: none; }
 .sh-first-h, .sh-first { width: 380px; }
+.imp-list { max-height: 40vh; overflow: auto; gap: 0; }
